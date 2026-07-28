@@ -4,12 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "registration-teaches-registration"
-version = "1.0.0"
+version = "1.0.1"
 description = "Winning STSR 2026 Task 2 semi-supervised CBCT-IOS registration method"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
-authors = [{ name = "avalanchezy" }]
+authors = [
+  { name = "Yi Zhu", email = "yi.zhu@creatis.insa-lyon.fr" },
+  { name = "Razmig Kéchichian" },
+  { name = "Raphaël Richert" },
+  { name = "Sébastien Valette" },
+]
 dependencies = [
   "numpy==2.2.6",
   "scipy==1.15.3",

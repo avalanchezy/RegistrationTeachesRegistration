@@ -5,7 +5,7 @@ USER root
 
 LABEL org.opencontainers.image.title="STSR2026 Task 2 CBCT-IOS Registration"
 LABEL org.opencontainers.image.description="STSR 2026 Task 2 winning semi-supervised CBCT-IOS registration method"
-LABEL org.opencontainers.image.version="1.0.0"
+LABEL org.opencontainers.image.version="1.0.1"
 LABEL org.opencontainers.image.source="https://github.com/avalanchezy/RegistrationTeachesRegistration"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

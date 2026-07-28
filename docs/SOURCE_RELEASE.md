@@ -28,7 +28,7 @@ This repository is the code release associated with the `avalanchezy` STSR
 python -m pytest -q
 python scripts/audit_source_release.py
 python scripts/package_source_release.py \
-  --output ../RegistrationTeachesRegistration-source-v1.0.0.zip
+  --output ../RegistrationTeachesRegistration-source-v1.0.1.zip
 ```
 
 Confirm that the archive expands to one top-level project directory and that

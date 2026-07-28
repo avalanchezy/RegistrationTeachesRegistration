@@ -24,6 +24,13 @@ Task 2 没有牙齿分割标签。我们把已标注病例的刚体变换用于�
 主办方的第一名通知未提供隐藏测试集数值，因此没有把公共验证分数冒充为
 隐藏测试分数。
 
+## 作者
+
+- [Yi Zhu](https://orcid.org/0009-0001-1159-6853)，CREATIS，第一作者兼通讯作者
+- [Razmig Kéchichian](https://orcid.org/0000-0001-7974-8705)，CREATIS
+- [Raphaël Richert](https://orcid.org/0000-0002-9298-1293)，Hospices Civils de Lyon
+- [Sébastien Valette](https://orcid.org/0000-0001-7549-4808)，CREATIS
+
 ## 快速使用
 
 先安装与显卡匹配的 PyTorch，再执行：

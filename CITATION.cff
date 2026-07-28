@@ -5,7 +5,22 @@ type: software
 authors:
   - family-names: Zhu
     given-names: Yi
-version: 1.0.0
-date-released: 2026-07-28
+    orcid: "https://orcid.org/0009-0001-1159-6853"
+    email: "yi.zhu@creatis.insa-lyon.fr"
+    affiliation: "INSA-Lyon, UCBL, CNRS, Inserm, CREATIS UMR 5220, U1294"
+  - family-names: Kéchichian
+    given-names: Razmig
+    orcid: "https://orcid.org/0000-0001-7974-8705"
+    affiliation: "INSA-Lyon, UCBL, CNRS, Inserm, CREATIS UMR 5220, U1294"
+  - family-names: Richert
+    given-names: Raphaël
+    orcid: "https://orcid.org/0000-0002-9298-1293"
+    affiliation: "Hospices Civils de Lyon, PAM Odontologie"
+  - family-names: Valette
+    given-names: Sébastien
+    orcid: "https://orcid.org/0000-0001-7549-4808"
+    affiliation: "INSA-Lyon, UCBL, CNRS, Inserm, CREATIS UMR 5220, U1294"
+version: 1.0.1
+date-released: 2026-07-29
 repository-code: "https://github.com/avalanchezy/RegistrationTeachesRegistration"
 license: MIT
