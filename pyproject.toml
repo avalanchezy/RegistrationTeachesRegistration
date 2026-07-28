@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "registration-teaches-registration"
+version = "1.0.0"
+description = "Winning STSR 2026 Task 2 semi-supervised CBCT-IOS registration method"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "avalanchezy" }]
+dependencies = [
+  "numpy==2.2.6",
+  "scipy==1.15.3",
+  "nibabel==5.4.2",
+  "trimesh==4.12.2",
+  "connected-components-3d==3.28.0",
+  "scikit-learn==1.7.2",
+  "joblib==1.5.3",
+  "open3d==0.19.0",
+  "matplotlib>=3.8,<4",
+  "torch>=2.5,<2.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
+[project.urls]
+Repository = "https://github.com/avalanchezy/RegistrationTeachesRegistration"
+
+[tool.setuptools.packages.find]
+include = ["task2reg*"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]

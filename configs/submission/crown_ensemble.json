@@ -1,0 +1,29 @@
+{
+  "mode": "arithmetic",
+  "branches": [
+    {
+      "name": "supervised",
+      "path": "supervised",
+      "weight": 0.5,
+      "fold_indices": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "name": "semisupervised",
+      "path": "semisupervised",
+      "weight": 0.5,
+      "fold_indices": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "policy_name": "round1_learned_blend_primary",
+  "policy_source": "Codabench validation submission 851449",
+  "codabench_validation_score": 5.7848,
+  "global_crown_modes": [
+    "crown"
+  ],
+  "global_geometry_candidate_budget": 30,
+  "include_global_crown_refinement": true,
+  "include_legacy_threshold_candidates": false,
+  "crown_tta_mode": "none",
+  "candidate_score_mode": "learned_blend",
+  "regression_aggregation": "vote",
+  "pairwise_aggregation": "median",
+  "blend_alpha": 0.575,
+  "joint_pair_top_k": 8,
+  "joint_angle_weight_mm_per_deg": 0.01,
+  "joint_translation_weight": 0.075,
+  "allow_chirality_mismatch": false,
+  "pair_prior_relative_rotation": [
+    [
+      0.9999914507925073,
+      -0.0005433162360194907,
+      0.0040991644714833565
+    ],
+    [
+      0.0005717004252645036,
+      0.9999758488288909,
+      -0.006926392824770421
+    ],
+    [
+      -0.004095302250182054,
+      0.006928677103672562,
+      0.9999676104419947
+    ]
+  ],
+  "pair_prior_relative_translation": [
+    0.1488564715815201,
+    0.2334186480400907,
+    -0.8254781168546337
+  ]
+}

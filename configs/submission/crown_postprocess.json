@@ -1,0 +1,8 @@
+{
+  "threshold": 0.25,
+  "minimum_component_voxels": 4,
+  "maximum_components": 0,
+  "minimum_hu": -1000.0,
+  "grid_size": 128,
+  "spacing_mm": 1.25
+}

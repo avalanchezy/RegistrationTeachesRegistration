@@ -1,0 +1,8 @@
+numpy==2.2.6
+scipy==1.15.3
+nibabel==5.4.2
+trimesh==4.12.2
+connected-components-3d==3.28.0
+scikit-learn==1.7.2
+joblib==1.5.3
+open3d==0.19.0

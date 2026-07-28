@@ -1,0 +1,122 @@
+{
+  "method": "Registration Teaches Registration",
+  "challenge": "STSR 2026 Task 2",
+  "team": "avalanchezy",
+  "official_hidden_test": {
+    "rank": 1,
+    "numeric_metric_disclosed": false
+  },
+  "public_validation": {
+    "mean_translation_error_mm": 5.7848,
+    "mean_rotation_error_deg": 3.7495,
+    "successful_jaws": 100,
+    "total_jaws": 100
+  },
+  "data": {
+    "labeled_cases": 30,
+    "labeled_jaws": 60,
+    "unlabeled_cases": 300,
+    "complete_unlabeled_cases": 289
+  },
+  "roi": {
+    "initial_threshold_hu": 1600,
+    "trial_thresholds_hu": [1400, 1200, 1800, 1000],
+    "margin_mm": 20.0,
+    "grid_size": 128,
+    "spacing_mm": 1.25
+  },
+  "weak_support": {
+    "crown_fraction": 0.35,
+    "surface_radius_mm": 0.7,
+    "minimum_hu": -1000.0,
+    "classes": ["background", "upper", "lower"]
+  },
+  "crown_network": {
+    "architecture": "five-level 3D U-Net",
+    "base_channels": 24,
+    "widths": [24, 48, 96, 192, 384],
+    "parameters_per_member": 12701691,
+    "batch_size": 1,
+    "learning_rate": 0.0003,
+    "weight_decay": 0.0001,
+    "background_class_weight": 0.1,
+    "surface_tolerance_voxels": 0,
+    "supervised_seeds": [20260721, 20260722, 20260723, 20260724, 20260725],
+    "supervised_epochs": [81, 68, 40, 53, 66],
+    "semisupervised_seeds": [20260731, 20260732, 20260733, 20260734, 20260735],
+    "semisupervised_epochs": [45, 76, 27, 48, 69],
+    "pseudo_cases_per_member": 80,
+    "pseudo_weight": 0.2
+  },
+  "pseudo_label_gate": {
+    "minimum_jaw_voxels": 500,
+    "maximum_jaw_voxels": 6000,
+    "minimum_confidence": 0.45,
+    "maximum_entropy": 1.0,
+    "maximum_per_cbct_hash_group": 1
+  },
+  "crown_ensemble": {
+    "supervised_members": 5,
+    "semisupervised_members": 5,
+    "fusion": "arithmetic_probability_average",
+    "branch_weights": {
+      "supervised": 0.5,
+      "semisupervised": 0.5
+    },
+    "test_time_augmentation": "none",
+    "probability_threshold": 0.25,
+    "minimum_component_voxels": 4,
+    "maximum_components": 0,
+    "postprocess_minimum_hu": -1000.0
+  },
+  "candidate_generation": {
+    "ios_crown_fractions": [0.25, 0.35, 0.45],
+    "ios_sides_per_fraction": 2,
+    "target": "binary_crown_support",
+    "candidate_budget": 30,
+    "basins": 8,
+    "samples_per_stage": 384,
+    "stages": [
+      {"rotation_sigma_deg": 12.0, "translation_sigma_mm": 8.0},
+      {"rotation_sigma_deg": 6.0, "translation_sigma_mm": 4.0},
+      {"rotation_sigma_deg": 3.0, "translation_sigma_mm": 2.0}
+    ],
+    "icp_distance_schedule_mm": [8.0, 5.0, 3.0, 2.0, 1.25],
+    "icp_iterations_per_scale": 8,
+    "icp_trim_fraction": 0.7,
+    "chirality": "metadata"
+  },
+  "candidate_ranking": {
+    "training_rows": 4929,
+    "features": 97,
+    "seeds": [20260711, 20260712, 20260713, 20260714, 20260715, 20260716, 20260717],
+    "regression_models": 7,
+    "regression_trees_per_model": 400,
+    "regression_target": "log1p_tre",
+    "regression_aggregation": "vote",
+    "pairwise_models": 7,
+    "pairwise_trees_per_model": 250,
+    "pairwise_aggregation": "median",
+    "tree_rank_budget": 20,
+    "blend_alpha": 0.575,
+    "joint_top_k": 8,
+    "joint_angle_weight_mm_per_deg": 0.01,
+    "joint_translation_weight": 0.075,
+    "allow_chirality_mismatch": false
+  },
+  "reference_banks": {
+    "paired_vertex_entries": 94,
+    "surface_entries": 97,
+    "paired_vertex_kinds": {
+      "labeled": 60,
+      "exact_ios_template_transfer": 24,
+      "learned_threshold_teacher": 10
+    },
+    "surface_kinds": {
+      "labeled": 60,
+      "exact_ios_template_transfer": 24,
+      "high_confidence_geometry_teacher": 10,
+      "learned_threshold_teacher": 3
+    }
+  }
+}

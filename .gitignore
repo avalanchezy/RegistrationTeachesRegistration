@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local data and experiment outputs
+data/
+datasets/
+inputs/
+outputs/
+runs/
+work/
+tmp/
+dist/
+build/
+*.log
+
+# Organizer data and derived artifacts must not be redistributed.
+*.nii
+*.nii.gz
+*.stl
+*.ply
+*.obj
+*_gt.npy
+*.pt
+*.pth
+*.ckpt
+*.joblib
+*.pkl
+*.pickle
+
+# Keep the model-assets policy document, never the generated assets.
+model_assets/*
+!model_assets/README.md
+
+# Source-release archives are generated outside the repository.
+*.zip
+*.tar
+*.tar.gz

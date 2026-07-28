@@ -1,0 +1,196 @@
+{
+  "assembled_utc": "20260716T054945Z",
+  "deployment_variant": {
+    "name": "v1_learned_blend",
+    "role": "primary",
+    "codabench_submission_id": 851449,
+    "codabench_validation_score": 5.7848
+  },
+  "fusion_summary": "runs/legal_crown_probability_fusion_oof_s20260715/summary.json",
+  "fusion_summary_sha256": "0a9f9b4dc4efb511ca1528303c1c3952974cae330524e512bebade2ad3c0e695",
+  "fusion_best": {
+    "method": "probability_fusion",
+    "supervised_weight": 0.5,
+    "semisupervised_weight": 0.5,
+    "mean_symmetric_chamfer_mm": 1.0817436187525646,
+    "mean_dice": 0.5338812331436871,
+    "threshold": 0.25,
+    "minimum_component_voxels": 4,
+    "maximum_components": 0,
+    "minimum_hu": -1000,
+    "probability_dir": "runs\\legal_crown_probability_fusion_oof_s20260715\\supervised_weight_0p500\\probabilities",
+    "fusion_mode": "arithmetic"
+  },
+  "crown_ensemble": {
+    "mode": "arithmetic",
+    "branches": [
+      {
+        "name": "supervised",
+        "path": "supervised",
+        "weight": 0.5,
+        "fold_indices": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      {
+        "name": "semisupervised",
+        "path": "semisupervised",
+        "weight": 0.5,
+        "fold_indices": [
+          0,
+          1,
+          2,
+          3,
+          4
+        ]
+      }
+    ]
+  },
+  "crown_postprocess": {
+    "threshold": 0.25,
+    "minimum_component_voxels": 4,
+    "maximum_components": 0,
+    "minimum_hu": -1000.0,
+    "grid_size": 128,
+    "spacing_mm": 1.25
+  },
+  "legacy_assets": "runs/final_model_assets_v8_staging",
+  "template_assets": "runs/payload_enriched_template_assets_s20260715",
+  "enhanced_assets": "runs/final_reranker_supervised_stable_direct_all30_s20260715",
+  "supervised_training": {
+    "path": "runs/final_crown_localizer_supervised_all30_s20260715",
+    "summary_sha256": "40f94a09596f4ec6830be3c040a12c0f5d1e95e0e27e4d97eb82defbf29f6b0a",
+    "members": [
+      {
+        "member": 0,
+        "seed": 20260721,
+        "epochs": 81,
+        "labeled_cases": 30,
+        "pseudo_cases": 0,
+        "pseudo_source_fold": null,
+        "pseudo_weight": 0.0,
+        "effective_samples_per_epoch": 30,
+        "training_mode": "supervised",
+        "retained_existing": false
+      },
+      {
+        "member": 1,
+        "seed": 20260722,
+        "epochs": 68,
+        "labeled_cases": 30,
+        "pseudo_cases": 0,
+        "pseudo_source_fold": null,
+        "pseudo_weight": 0.0,
+        "effective_samples_per_epoch": 30,
+        "training_mode": "supervised",
+        "retained_existing": false
+      },
+      {
+        "member": 2,
+        "seed": 20260723,
+        "epochs": 40,
+        "labeled_cases": 30,
+        "pseudo_cases": 0,
+        "pseudo_source_fold": null,
+        "pseudo_weight": 0.0,
+        "effective_samples_per_epoch": 30,
+        "training_mode": "supervised",
+        "retained_existing": false
+      },
+      {
+        "member": 3,
+        "seed": 20260724,
+        "epochs": 53,
+        "labeled_cases": 30,
+        "pseudo_cases": 0,
+        "pseudo_source_fold": null,
+        "pseudo_weight": 0.0,
+        "effective_samples_per_epoch": 30,
+        "training_mode": "supervised",
+        "retained_existing": false
+      },
+      {
+        "member": 4,
+        "seed": 20260725,
+        "epochs": 66,
+        "labeled_cases": 30,
+        "pseudo_cases": 0,
+        "pseudo_source_fold": null,
+        "pseudo_weight": 0.0,
+        "effective_samples_per_epoch": 30,
+        "training_mode": "supervised",
+        "retained_existing": false
+      }
+    ]
+  },
+  "semisupervised_training": {
+    "path": "runs/final_crown_localizer_semisup_best_all30_s20260715",
+    "summary_sha256": "c3dbf734563d4fef732aecca3f017411d07e4dbfdc1ab5ea306b8bbc94b63266",
+    "members": [
+      {
+        "member": 0,
+        "seed": 20260731,
+        "epochs": 45,
+        "labeled_cases": 30,
+        "pseudo_cases": 80,
+        "pseudo_source_fold": "fold_0",
+        "pseudo_weight": 0.2,
+        "effective_samples_per_epoch": 46,
+        "training_mode": "semisupervised",
+        "retained_existing": false
+      },
+      {
+        "member": 1,
+        "seed": 20260732,
+        "epochs": 76,
+        "labeled_cases": 30,
+        "pseudo_cases": 80,
+        "pseudo_source_fold": "fold_1",
+        "pseudo_weight": 0.2,
+        "effective_samples_per_epoch": 46,
+        "training_mode": "semisupervised",
+        "retained_existing": false
+      },
+      {
+        "member": 2,
+        "seed": 20260733,
+        "epochs": 27,
+        "labeled_cases": 30,
+        "pseudo_cases": 80,
+        "pseudo_source_fold": "fold_2",
+        "pseudo_weight": 0.2,
+        "effective_samples_per_epoch": 46,
+        "training_mode": "semisupervised",
+        "retained_existing": false
+      },
+      {
+        "member": 3,
+        "seed": 20260734,
+        "epochs": 48,
+        "labeled_cases": 30,
+        "pseudo_cases": 80,
+        "pseudo_source_fold": "fold_3",
+        "pseudo_weight": 0.2,
+        "effective_samples_per_epoch": 46,
+        "training_mode": "semisupervised",
+        "retained_existing": false
+      },
+      {
+        "member": 4,
+        "seed": 20260735,
+        "epochs": 69,
+        "labeled_cases": 30,
+        "pseudo_cases": 80,
+        "pseudo_source_fold": "fold_4",
+        "pseudo_weight": 0.2,
+        "effective_samples_per_epoch": 46,
+        "training_mode": "semisupervised",
+        "retained_existing": false
+      }
+    ]
+  }
+}
