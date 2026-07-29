@@ -44,13 +44,6 @@ model, or external dental dataset were used by the submitted method.
 The organizer's first-place notice did not include a numerical hidden-test
 metric, so the public-validation values are reported separately.
 
-## Authors
-
-- [Yi Zhu](https://orcid.org/0009-0001-1159-6853), CREATIS, corresponding author
-- [Razmig Kéchichian](https://orcid.org/0000-0001-7974-8705), CREATIS
-- [Raphaël Richert](https://orcid.org/0000-0002-9298-1293), Hospices Civils de Lyon
-- [Sébastien Valette](https://orcid.org/0000-0001-7549-4808), CREATIS
-
 ## Installation
 
 Python 3.11 was used for deployment. Install a CUDA-compatible PyTorch build,
