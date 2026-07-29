@@ -7,8 +7,8 @@
     "numeric_metric_disclosed": false
   },
   "public_validation": {
-    "mean_translation_error_mm": 5.7848,
-    "mean_rotation_error_deg": 3.7495,
+    "mean_translation_error_mm": 5.7847997680,
+    "mean_rotation_error_deg": 2.8636779586,
     "successful_jaws": 100,
     "total_jaws": 100
   },

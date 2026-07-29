@@ -37,7 +37,7 @@ model, or external dental dataset were used by the submitted method.
 |---|---:|
 | Official hidden test | **1st place** |
 | Public validation mean translation error | **5.7848 mm** |
-| Public validation mean rotation error | **3.7495 deg** |
+| Public validation mean rotation error | **2.8637 deg** |
 | Public validation completion | **100 / 100 jaws** |
 | Grouped fused crown-support Chamfer | **1.0817 mm** |
 

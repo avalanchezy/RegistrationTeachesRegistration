@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "registration-teaches-registration"
-version = "1.0.1"
+version = "1.0.2"
 description = "Winning STSR 2026 Task 2 semi-supervised CBCT-IOS registration method"
 readme = "README.md"
 requires-python = ">=3.10"
