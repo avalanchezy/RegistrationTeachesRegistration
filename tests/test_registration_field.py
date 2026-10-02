@@ -193,6 +193,13 @@ def test_eikonal_penalizes_wrong_physical_gradient_away_from_unsigned_cusp():
     assert scale.grad.item() == pytest.approx(2.)
 
 
+def test_eikonal_excludes_clamped_outside_queries_with_impossible_unit_gradient():
+    points = torch.tensor([[[-1., 0., 0.], [1., 0., 0.]]], requires_grad=True)
+    distances = points[..., 0].clamp_min(0)
+    loss = eikonal_loss(distances, points, torch.ones(1, 2), valid_mask=torch.tensor([[False, True]]))
+    assert loss.item() == pytest.approx(0, abs=1e-10)
+
+
 @pytest.mark.parametrize("mode", ["dense", "implicit"])
 def test_network_retains_support_logits_and_query_gradients(mode):
     torch.manual_seed(12)

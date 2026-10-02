@@ -14,7 +14,9 @@
 
 如果 ranking 有效而 verified SSL 无明确收益，就应缩小题目和贡献范围。如果连续场只提高自身重建指标、没有改善配准，也不能用“optimization-aware”代替实验证据。
 
-投稿前应由作者查看 [KBS 官方主页](https://www.sciencedirect.com/journal/knowledge-based-systems)及其当前作者指南。本次环境访问官方主页返回 HTTP 403，因此这里不引用未经读取的投稿政策、新内容比例、版面限制或录用标准。
+投稿前应由作者查看 [KBS 官方主页](https://www.sciencedirect.com/journal/knowledge-based-systems)及其当前作者指南。第二轮已读取 [Elsevier 的 KBS 介绍](https://shop.elsevier.com/journals/knowledge-based-systems/0950-7051)及 [MedIA 介绍](https://shop.elsevier.com/journals/medical-image-analysis/1361-8415)核对研究范围；ScienceDirect 作者指南仍受访问限制，因此不引用未经读取的新内容比例、版面限制或录用规则。
+
+第二轮进一步核对 MICCAI 2026 直接 CBCT–IOS 对应方法、修复评估和训练边界，并增加可运行的收敛实验与独立参考审计。新颖性边界、KBS/MedIA 判断及命令见[第二轮实验手册](JOURNAL_READINESS_zh-CN.md)。
 
 两个已核对的相关工作足以划清最基本的创新边界：
 
@@ -337,6 +339,8 @@ C6 是预定完整组合，不是事先认定的赢家。建议固定共同的 t
 
 默认 `validation_metric=selected_D_mm`：对固定验证候选与固定抽样点，用当前 field 能量选最低候选，再在保存的 anchors 上计算 \(D\)，病例结果先在患者内平均、再对患者平均。验证候选不加 GT，也不随 rank warmup 改变评价目标。
 
+这仍是原始候选的代理指标。第二轮加入 `refined_selected_D_mm`，使用真实候选精修及重选流程再计算 D；方法主张涉及优化质量时，应在所有对照中统一此选模协议及其步数、点预算、学习率。
+
 **此验证指标目前不包含每个 epoch 的候选 refinement。** 它衡量固定缓存池中的选择质量。最终测试另行运行规定步数的 refinement 并报告 before/after。若研究者决定按 refinement 后性能选 checkpoint，需要在开发阶段建立相应固定协议，不得在看过测试结果后改变选择规则。
 
 `field_loss` 主要用于架构开发或烟雾测试；若用于正式 checkpoint 选择，应说明它与最终注册目标不同。历史 checkpoint 键名可能仍含 `validation_loss`，以同步保存的 `validation_metric` 理解单位。
@@ -379,7 +383,7 @@ bootstrap 单位为患者，使上下颌和重复扫描一起重采样。配对�
 
 每个来源单独运行评价并报告，再给总结果。当前基本汇总采用患者 bootstrap，不应把它描述为已实现所有来源分层、scanner 分层和多重比较校正。对于主稿的源分层置信区间、Holm 校正等，应按预注册统计计划追加真实分析。
 
-Risk–coverage 曲线中的 score 是未校准排序指标，不是正确概率。报告覆盖率的单位是病例/jaw记录还是患者，并对同分值造成的排序不确定性作敏感性检查。建议同时展示错误 CDF、oracle-selected 散点、初始误差与收敛率、伪标签 U95 与真实 \(D\)、各来源失败类型。
+Risk–coverage 曲线中的 score 是未校准排序指标，不是正确概率。报告覆盖率的单位是病例/jaw记录还是患者。现实现同分值整批加入，缺失 score 留到末组，避免同一阈值只挑好病例。正式评价提供 expected manifest 和方法名单，漏报显式计失败；多方法不再静默取病例交集。建议同时展示错误 CDF、oracle-selected 散点、初始误差与收敛率、伪标签 U95 与真实 \(D\)、各来源失败类型。
 
 ## 9. 推进顺序和停止标准
 

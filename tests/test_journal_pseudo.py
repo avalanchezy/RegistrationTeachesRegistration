@@ -15,6 +15,17 @@ def test_spatial_sectors_are_balanced_and_deterministic():
         spatial_sectors(points[:2], 4)
 
 
+def test_verification_seed_is_bound_to_identity_not_manifest_order():
+    from task2reg.journal.pseudo import verification_seed
+    a = dict(source="s", case_id="c1", jaw="upper", patient_id="p1")
+    b = a | {"case_id": "c2"}
+    forward = {r["case_id"]: verification_seed(r, 12) for r in (a, b)}
+    reverse = {r["case_id"]: verification_seed(r, 12) for r in (b, a)}
+    assert forward == reverse
+    assert forward["c1"] != forward["c2"]
+    assert verification_seed(a, 12) != verification_seed(a | {"jaw": "lower"}, 12)
+
+
 def test_pseudo_export_replaces_unlabeled_and_preserves_spatial_weights(tmp_path):
     manifest = synthetic_manifest(tmp_path)
     records = load_journal_manifest(manifest)

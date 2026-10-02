@@ -1,10 +1,12 @@
 # Registration Teaches Registration
 
 This research branch adds a trainable journal extension: dense/implicit unsigned
-registration fields, candidate ranking, parity-preserving refinement, and
-verified spatial self-training. **No real-data improvement is claimed yet.**
+registration fields, a separate task-potential head, physical SE(3) secant
+supervision around difficult poses, candidate ranking and spatial self-training.
+**No real-data improvement is claimed yet.**
 The historical challenge runtime and its source hashes are preserved.
-See the [journal guide](docs/JOURNAL.md),
+Start with the [scientific method and controlled experiments (中文)](docs/JOURNAL_METHOD_zh-CN.md).
+See also the [journal guide](docs/JOURNAL.md),
 [remote training instructions (中文)](docs/JOURNAL_TRAINING_zh-CN.md),
 [data adapter guide (中文)](docs/JOURNAL_DATA_zh-CN.md), and
 [research protocol (中文)](docs/JOURNAL_RESEARCH_PLAN_zh-CN.md).

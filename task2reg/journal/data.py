@@ -243,6 +243,14 @@ def sample_queries(
     # Compute on the actual returned precision so targets match query locations.
     distance, nearest = cKDTree(surface).query(queries.astype(np.float64), workers=1)
     weights = np.asarray(case.get("point_weights", np.ones(len(points))), dtype=np.float32)[nearest]
+    # Queries outside the image clamp to its boundary in both field heads. A
+    # varying outside-distance target is therefore unrepresentable there; the
+    # separate physical ROI penalty handles such points during registration.
+    inverse = np.linalg.inv(affine)
+    query_voxel = queries.astype(np.float64) @ inverse[:3, :3].T + inverse[:3, 3]
+    in_roi = ((query_voxel >= -1e-5) &
+              (query_voxel <= np.asarray(case["image"].shape) - 1 + 1e-5)).all(axis=1)
+    weights = weights * in_roi
     if "supervision_radius_mm" in case:
         weights = weights * (distance <= float(case["supervision_radius_mm"]))
     order = rng.permutation(count)
@@ -250,4 +258,5 @@ def sample_queries(
         "points_world": queries[order],
         "targets": np.minimum(distance, truncation_mm).astype(np.float32)[order],
         "weights": weights.astype(np.float32)[order],
+        "in_roi": in_roi[order],
     }

@@ -107,11 +107,14 @@ def _patient_rows(rows):
 
 
 def _risk_coverage(rows):
-    # Missing confidence is retained at the end, never silently discarded.
+    # A threshold cannot select a subset of a tied score. Missing scores form
+    # one final inclusion group, rather than fictitious finite-score thresholds.
     ranked = sorted(rows, key=lambda row: (-(row['confidence'] if row['confidence'] is not None else -np.inf),
                                             row['patient_id'], row['source'], row['case_id'], row['jaw']))
     curve = []
     for count in range(1, len(ranked) + 1):
+        if count < len(ranked) and ranked[count - 1]['confidence'] == ranked[count]['confidence']:
+            continue
         selected = ranked[:count]
         patients = _patient_rows(selected)
         valid_errors = [row['final_selected_d_mm'] for row in patients if row['final_selected_d_mm'] is not None]
@@ -119,29 +122,121 @@ def _risk_coverage(rows):
                           n_failed_cases=sum(row['registration_failed'] for row in selected),
                           n_invalid_cases=sum(row['failed'] for row in selected),
                           confidence_threshold=selected[-1]['confidence'],
+                          includes_missing_confidence=selected[-1]['confidence'] is None,
                           risk=float(np.mean([1 - row['success_rate'] for row in patients])),
                           mean_d_mm=float(np.mean(valid_errors)) if valid_errors else None))
     return curve
 
 
-def evaluate_records(records, *, bootstrap_samples=2000, seed=0, success_threshold_mm=2.):
+def _cohort_identity(record, description):
+    if not isinstance(record, dict):
+        raise ValueError(f'{description} must contain record objects')
+    for name in ('patient_id', 'case_id', 'jaw'):
+        if not isinstance(record.get(name), str) or not record[name].strip():
+            raise ValueError(f'{description} requires an explicit nonempty {name}')
+    source = record.get('source', '')
+    if not isinstance(source, str):
+        raise ValueError(f'{description} source must be a string')
+    if record.get('reference_kind', 'unspecified') not in {'manual', 'silver', 'unspecified'}:
+        raise ValueError(f'{description} reference_kind must be manual, silver, or unspecified')
+    return source, record['case_id'], record['jaw']
+
+
+def _complete_cohort(records, expected_cohort, expected_methods, missing_as_failure):
+    """Align method denominators without deriving missing cases from successes."""
+    if not isinstance(missing_as_failure, bool):
+        raise ValueError('missing_as_failure must be a boolean')
+    if missing_as_failure and expected_cohort is None:
+        raise ValueError('missing_as_failure requires an explicit expected_cohort')
+    observed = {}
+    for row in records:
+        identity = _cohort_identity(row, 'prediction cohort')
+        method = row.get('method')
+        if not isinstance(method, str) or not method.strip():
+            raise ValueError('method must be an explicit nonempty string')
+        method_rows = observed.setdefault(method, {})
+        if identity in method_rows:
+            raise ValueError(f'duplicate method/source/case/jaw record: {(method, *identity)}')
+        method_rows[identity] = row
+    if expected_methods is None:
+        methods = sorted(observed)
+        if not methods:
+            raise ValueError('Empty predictions require explicit expected_methods and expected_cohort')
+    else:
+        if isinstance(expected_methods, str):
+            raise ValueError('expected_methods must be a nonempty sequence of method names')
+        methods = list(expected_methods)
+        if not methods or any(not isinstance(method, str) or not method.strip() for method in methods):
+            raise ValueError('expected_methods must be a nonempty sequence of method names')
+        if len(set(methods)) != len(methods):
+            raise ValueError('duplicate expected_methods entries')
+        methods.sort()
+        if set(observed) - set(methods):
+            raise ValueError(f'Unexpected methods outside expected_methods: {sorted(set(observed) - set(methods))}')
+    expected = {}
+    if expected_cohort is not None:
+        for row in expected_cohort:
+            identity = _cohort_identity(row, 'expected cohort')
+            if identity in expected:
+                raise ValueError(f'duplicate expected cohort case: {identity}')
+            expected[identity] = dict(patient_id=row['patient_id'], source=identity[0],
+                                      case_id=identity[1], jaw=identity[2],
+                                      reference_kind=row.get('reference_kind', 'unspecified'))
+        if not expected:
+            raise ValueError('expected_cohort must be nonempty')
+        for method_rows in observed.values():
+            for identity, row in method_rows.items():
+                if identity not in expected:
+                    raise ValueError(f'Prediction outside expected cohort: {identity}')
+                for name, default in (('patient_id', None), ('reference_kind', 'unspecified')):
+                    if row.get(name, default) != expected[identity][name]:
+                        raise ValueError(f'{name} differs from expected cohort for {identity}')
+    else:
+        # Enforce equal observed cohorts by default, including absent methods
+        # named by the roster. Only an external roster can expose cases omitted
+        # by every method; this inferred union is never used to fill failures.
+        for method_rows in observed.values():
+            expected.update(method_rows)
+    aligned = list(records)
+    for method in methods:
+        missing = sorted(expected.keys() - observed.get(method, {}).keys())
+        if missing and not missing_as_failure:
+            raise ValueError(f'Method cohort mismatch: missing predictions for {method}: {missing}')
+        for identity in missing:
+            aligned.append(dict(expected[identity], method=method, failed=True,
+                                failure_reason='missing_prediction'))
+    if not aligned:
+        raise ValueError('records must be nonempty')
+    metadata = dict(expected_cohort_supplied=expected_cohort is not None,
+                    n_expected_cases=len(expected), expected_methods=methods,
+                    missing_as_failure=missing_as_failure)
+    return aligned, metadata
+
+
+def evaluate_records(records, *, bootstrap_samples=2000, seed=0, success_threshold_mm=2.,
+                     expected_cohort=None, expected_methods=None, missing_as_failure=False):
     """Evaluate JSON-compatible observations; schema is documented by the CLI.
 
     Each method/source/case/jaw has one record and a globally reconciled patient_id.
     Patient statistics average jaws/cases first and bootstrap patients with
-    replacement. Paired comparisons use the common patient cohort; D comparisons
+    replacement. All methods must cover the same case cohort; D comparisons
     additionally require valid predictions for both methods on matched cases.
     Failure rates and threshold risk include failed or invalid predictions.
     Each method must use one reference_kind; mixed manual/silver/unspecified
     evidence must be filtered into separate reports before evaluation.
+
+    expected_cohort is a sequence of source/case/jaw identities with patient_id
+    and reference_kind. Supplying it detects cases omitted by every method;
+    expected_methods additionally detects methods with no predictions at all.
+    Missing predictions raise unless missing_as_failure is explicitly enabled
+    with expected_cohort, in which case they contribute failures, never D values.
     """
     if isinstance(bootstrap_samples, bool) or not isinstance(bootstrap_samples, int) or bootstrap_samples < 1:
         raise ValueError('bootstrap_samples must be a positive integer')
     if not np.isfinite(success_threshold_mm) or success_threshold_mm < 0:
         raise ValueError('success_threshold_mm must be finite and nonnegative')
     records = list(records)
-    if not records:
-        raise ValueError('records must be nonempty')
+    records, cohort = _complete_cohort(records, expected_cohort, expected_methods, missing_as_failure)
     seen = set()
     identity_patients = {}
     reference_evidence = {}
@@ -203,7 +298,8 @@ def evaluate_records(records, *, bootstrap_samples=2000, seed=0, success_thresho
                   success_threshold_mm=success_threshold_mm,
                   error_statistics='D conditional on valid rigid outputs; rotation conditional on matching parity.',
                   failure_rate_definition='Registration failure: invalid output, parity mismatch, or final D above threshold. failure_rate aliases registration_failure_rate.',
-                  risk_definition='Patient mean of jaw/case failure or final D above threshold; coverage is case fraction.',
+                  risk_definition='Patient mean of jaw/case failure or final D above threshold; coverage is case fraction. Equal confidence scores enter together; missing confidence enters as one final inclusion group.',
+                  cohort=cohort,
                   cases=cases, patients={}, methods={}, paired_comparisons=[], risk_coverage={})
     for method in methods:
         rows = [row for row in cases if row['method'] == method]

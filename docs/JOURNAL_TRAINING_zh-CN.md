@@ -2,7 +2,7 @@
 
 本分支交付的是可以运行的研究代码、配置、数据适配器和实验协议。没有本机
 真实数据、训练好的新权重或新方法精度结果。正式训练前先读
-[数据手册](JOURNAL_DATA_zh-CN.md)和[研究方案](JOURNAL_RESEARCH_PLAN_zh-CN.md)。
+[数据手册](JOURNAL_DATA_zh-CN.md)和[核心方法及直接对照](JOURNAL_METHOD_zh-CN.md)。
 旧挑战赛推理继续使用旧入口；新研究入口从缓存候选出发，不查找 reference bank。
 
 ## 1. 获取分支与环境
@@ -39,14 +39,15 @@ CPU 检查可把 torch index-url 改为 `https://download.pytorch.org/whl/cpu`�
 
 ```bash
 OMP_NUM_THREADS=2 python scripts/smoke_registration_field.py \
-  --output-dir /tmp/rtr-journal-smoke --device cpu
+  --output-dir /tmp/rtr-journal-smoke --device cpu --task-potential
 
 # 可选 CUDA + AMP 检查
 OMP_NUM_THREADS=2 python scripts/smoke_registration_field.py \
-  --output-dir /tmp/rtr-journal-smoke-cuda --device cuda --amp
+  --output-dir /tmp/rtr-journal-smoke-cuda --device cuda --amp --task-potential
 ```
 
-该检查构造合成体积、已知变换和错误候选，执行训练、断点恢复、候选 refinement、
+该检查构造合成体积、已知变换和错误候选，执行训练、断点恢复、双头 warm-start、
+局部 secant 监督、候选 refinement、
 固定点评价和伪标签验证。合成病例被验证器拒绝是正常结果；不应为了让它被接受而放宽
 生产 gate。检查 `smoke_result.json`，并查看 `training/metrics.jsonl` 的真实优化步数。
 合成数据上的零误差或可运行性不能作为医学数据实验结果。
@@ -154,7 +155,10 @@ checkpoint 含 Python 优化器/RNG 状态，只加载可信的本地文件。
 
 旧 support 权重可经 `--initialize-support` 加载，但必须额外传
 `--initialization-provenance`，其中包括 `excluded_patient_ids`、
-`training_patient_ids`、`training_sources`、`training_content_hashes`。
+`training_patient_ids`、`training_sources`、`training_content_hashes`，以及
+`provenance_schema_version=2`、`selection_patient_ids`、`selection_sources`、
+`selection_content_hashes`。历史未知不能写成空列表；格式见
+[协议附录](JOURNAL_READINESS_zh-CN.md#5-完整分母和模型来源)。
 不能用训练过全部 30 例的旧最终模型初始化新交叉验证却声称患者未见。
 默认配置不依赖旧权重。
 
@@ -212,6 +216,8 @@ python scripts/predict_registration_field.py \
 
 python scripts/evaluate_journal_registration.py \
   --input /data/runs/c6_seed0/test/evaluation_input.json \
+  --expected-manifest /data/journal/experiment/manifest.json --split test \
+  --expected-method journal_field --reference-kind manual --missing-as-failure \
   --output /data/runs/c6_seed0/test/report.json \
   --bootstrap-samples 2000 --seed 20261002
 ```
@@ -260,9 +266,9 @@ python -m pip freeze > /data/runs/environment.txt
 
 正式 GPU 吞吐、128³ 显存峰值和真实病例精度尚未测量；本地证据限于单元测试和
 合成 CPU/CUDA 全流程。训练器为单设备，多个 GPU 可独立运行不同 seed/fold，
-没有实现 DDP。阈值校准仍是开发实验：可对 `val` 病例通过
-`task2reg.journal.pseudo.verify_case` 收集 gate evidence 与人工参考误差，之后
-冻结 JSON；当前 CLI 不会自动学习“最优阈值”。
+没有实现 DDP。当前主要方法实验应先按[方法手册](JOURNAL_METHOD_zh-CN.md)比较
+M1–M6 的优化方向、收敛范围和真实候选配准。SSL 阈值与统计工具另见
+[协议附录](JOURNAL_READINESS_zh-CN.md)，不能替代方法有效性实验。
 
 训练支持断点恢复，但伪标签验证导出目前按顺序完成整批后写汇总，没有病例级
 断点续验。单例数值异常会终止这次导出，需修复后重跑；建议先验证小型开发批次，

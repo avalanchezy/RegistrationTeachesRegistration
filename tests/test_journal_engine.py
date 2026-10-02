@@ -196,3 +196,204 @@ def test_candidate_scoring_bounds_query_batch_without_changing_energy():
     expected, _ = registration_energy(torch.linalg.vector_norm(moved,dim=-1), moved, affine.expand(21,-1,-1), (32,32,32))
     torch.testing.assert_close(energy, expected)
     assert max(model.counts) <= 8 * points.shape[1]
+
+
+def initialization_checkpoint(path, **overrides):
+    config = tiny_config()
+    payload = dict(format="rtr-journal-field-v1", config=config.as_dict(),
+                   model=RegistrationField(4).state_dict(), provenance_schema_version=2,
+                   training_patient_ids=["ancestor-train"], training_sources=["ancestor-source"],
+                   training_content_hashes=["ancestor-training-content"],
+                   excluded_patient_ids=["p1", "p2"],
+                   selection_patient_ids=["ancestor-val"],
+                   selection_sources=["ancestor-selection-source"],
+                   selection_content_hashes=["ancestor-validation-content"])
+    payload.update(overrides)
+    torch.save(payload, path)
+    return payload
+
+
+def test_checkpoint_retains_selection_history_through_resume_and_initialization(tmp_path):
+    manifest = synthetic_manifest(tmp_path)
+    payload = json.loads(manifest.read_text())
+    payload["records"][1]["content_hash"] = "current-validation-content"
+    manifest.write_text(json.dumps(payload))
+    parent = tmp_path / "parent.pt"
+    initialization_checkpoint(parent)
+    train(manifest, tmp_path / "run", tiny_config(), initialize_field=parent)
+    last = tmp_path / "run/last.pt"
+    train(manifest, tmp_path / "run", tiny_config(epochs=2), resume=last)
+    train(manifest, tmp_path / "continuation", tiny_config(), initialize_field=last)
+    for directory in ("run", "continuation"):
+        saved = torch.load(tmp_path / directory / "last.pt", weights_only=False, map_location="cpu")
+        provenance = json.loads((tmp_path / directory / "provenance.json").read_text())
+        for source in (saved, provenance):
+            assert source["provenance_schema_version"] == 2
+            assert source["selection_patient_ids"] == ["ancestor-val", "p1"]
+            assert source["selection_sources"] == ["ancestor-selection-source", "synthetic"]
+            assert source["selection_content_hashes"] == ["ancestor-validation-content", "current-validation-content"]
+
+
+@pytest.mark.parametrize("split", ["test", "external_test"])
+@pytest.mark.parametrize("overlap", ["patient", "content"])
+def test_initialization_cannot_promote_ancestor_selection_to_locked_test(tmp_path, split, overlap):
+    manifest = synthetic_manifest(tmp_path)
+    payload = json.loads(manifest.read_text())
+    locked = payload["records"][-1]
+    locked.update(split=split, reference_kind="manual", source="locked-source",
+                  content_hash="selected-content")
+    manifest.write_text(json.dumps(payload))
+    parent = tmp_path / "parent.pt"
+    initialization_checkpoint(parent,
+                              selection_patient_ids=["p2" if overlap == "patient" else "another-patient"],
+                              selection_content_hashes=["selected-content" if overlap == "content" else "other-content"])
+    with pytest.raises(ValueError, match="selection"):
+        train(manifest, tmp_path / "student", tiny_config(), initialize_field=parent)
+    assert not (tmp_path / "student/last.pt").exists()
+
+
+def test_external_source_cannot_have_selected_ancestor_model_on_different_patients(tmp_path):
+    manifest = synthetic_manifest(tmp_path)
+    payload = json.loads(manifest.read_text())
+    payload["records"][-1].update(split="external_test", reference_kind="manual", source="locked-source")
+    manifest.write_text(json.dumps(payload))
+    parent = tmp_path / "parent.pt"
+    initialization_checkpoint(parent, selection_sources=["locked-source"])
+    with pytest.raises(ValueError, match="selection.*source"):
+        train(manifest, tmp_path / "student", tiny_config(), initialize_field=parent)
+
+
+def test_selection_source_history_cannot_be_silently_omitted(tmp_path):
+    manifest = synthetic_manifest(tmp_path)
+    parent = tmp_path / "parent.pt"
+    payload = initialization_checkpoint(parent)
+    payload.pop("selection_sources")
+    torch.save(payload, parent)
+    with pytest.raises(ValueError, match="selection_sources"):
+        train(manifest, tmp_path / "student", tiny_config(), initialize_field=parent)
+
+
+def test_legacy_initialization_needs_an_explicit_hash_bound_selection_audit(tmp_path):
+    from task2reg.journal.runtime import sha256_file
+    manifest = synthetic_manifest(tmp_path)
+    parent = tmp_path / "legacy.pt"
+    payload = initialization_checkpoint(parent)
+    for key in ("provenance_schema_version", "selection_patient_ids", "selection_sources", "selection_content_hashes"):
+        payload.pop(key)
+    torch.save(payload, parent)
+    with pytest.raises(ValueError, match="selection"):
+        train(manifest, tmp_path / "unknown", tiny_config(), initialize_field=parent)
+    audit = {key: value for key, value in payload.items() if key not in {"model", "config", "format"}}
+    audit.update(provenance_schema_version=2, selection_patient_ids=["audited-val"],
+                 selection_sources=["audited-source"], selection_content_hashes=[], checkpoint_sha256="wrong-checkpoint")
+    sidecar = tmp_path / "audit.json"
+    sidecar.write_text(json.dumps(audit))
+    with pytest.raises(ValueError, match="checkpoint_sha256"):
+        train(manifest, tmp_path / "wrong-audit", tiny_config(), initialize_field=parent,
+              initialization_provenance=sidecar)
+    audit["checkpoint_sha256"] = sha256_file(parent)
+    sidecar.write_text(json.dumps(audit))
+    train(manifest, tmp_path / "audited", tiny_config(), initialize_field=parent,
+          initialization_provenance=sidecar)
+    saved = torch.load(tmp_path / "audited/last.pt", weights_only=False, map_location="cpu")
+    assert saved["selection_patient_ids"] == ["audited-val", "p1"]
+
+
+def test_resume_rejects_unknown_selection_history(tmp_path):
+    manifest = synthetic_manifest(tmp_path)
+    train(manifest, tmp_path / "run", tiny_config())
+    checkpoint = tmp_path / "run/last.pt"
+    saved = torch.load(checkpoint, weights_only=False, map_location="cpu")
+    for key in ("provenance_schema_version", "selection_patient_ids", "selection_sources", "selection_content_hashes"):
+        saved.pop(key, None)
+    torch.save(saved, checkpoint)
+    with pytest.raises(ValueError, match="selection"):
+        train(manifest, tmp_path / "run", tiny_config(epochs=2), resume=checkpoint)
+
+
+def test_refined_validation_distinguishes_fields_with_equal_raw_candidate_quality():
+    class AnalyticField:
+        def __init__(self, stationary):
+            self.stationary = stationary
+
+        def encode(self, image):
+            return {"features": (), "logits": image, "input_shape": image.shape[2:]}
+
+        def query(self, context, points, affine, jaw):
+            distance = (points[..., 0] - 5).abs()
+            if self.stationary:
+                distance = distance - torch.sin(2 * torch.pi * distance) / (2 * torch.pi)
+            return distance
+
+    points = np.array([[5, 5, 5], [5, 6, 5], [5, 5, 6], [5, 6, 6]], dtype=np.float32)
+    candidates = np.repeat(np.eye(4)[None], 2, axis=0)
+    candidates[:, 0, 3] = [1, 3]
+    case = dict(image=np.zeros((16, 16, 16)), affine=np.eye(4), points=points,
+                anchors=points.copy(), transform=np.eye(4), candidates=candidates)
+    record = dict(jaw="upper", case_id="analytic")
+    raw = tiny_config(candidate_points=4)
+    useful, stationary = AnalyticField(False), AnalyticField(True)
+    assert validation_score(useful, case, record, raw, "cpu") == pytest.approx(1.)
+    assert validation_score(stationary, case, record, raw, "cpu") == pytest.approx(1.)
+    refined = tiny_config(validation_metric="refined_selected_D_mm", validation_refinement_steps=20,
+                          validation_point_budget=4, validation_refinement_learning_rate=.25)
+    assert validation_score(useful, case, record, refined, "cpu") < .001
+    assert validation_score(stationary, case, record, refined, "cpu") == pytest.approx(1.)
+
+
+def manifest_with_locked_case(tmp_path, split):
+    manifest = synthetic_manifest(tmp_path)
+    payload = json.loads(manifest.read_text())
+    with np.load(tmp_path / "val.npz", allow_pickle=False) as archive:
+        case = {key: archive[key].copy() for key in archive.files}
+    case["image"] += 100
+    np.savez_compressed(tmp_path / "locked.npz", **case)
+    payload["records"].append(dict(case_id="locked:1", patient_id="p3", source="locked-source",
+                                   split=split, jaw="upper", npz_path="locked.npz",
+                                   reference_kind="manual", content_hash="locked-content",
+                                   candidate_provenance={"kind": "geometry_only"}))
+    manifest.write_text(json.dumps(payload))
+    return manifest
+
+
+@pytest.mark.parametrize("route", ["predict", "pseudo_export"])
+@pytest.mark.parametrize("split,overlap", [
+    ("test", "patient"), ("test", "content"), ("test", "unknown"),
+    ("external_test", "patient"), ("external_test", "content"), ("external_test", "source"),
+])
+def test_locked_routes_reject_checkpoint_selection_exposure(tmp_path, route, split, overlap):
+    from task2reg.journal.pseudo import export_verified_pseudo
+    manifest = manifest_with_locked_case(tmp_path, split)
+    checkpoint = tmp_path / "teacher.pt"
+    saved = initialization_checkpoint(checkpoint, excluded_patient_ids=["p1", "p3"])
+    if overlap == "unknown":
+        saved.pop("provenance_schema_version")
+    else:
+        key, value = {"patient": ("selection_patient_ids", "p3"),
+                      "content": ("selection_content_hashes", "locked-content"),
+                      "source": ("selection_sources", "locked-source")}[overlap]
+        saved[key] = [value]
+    torch.save(saved, checkpoint)
+    with pytest.raises(ValueError, match="selection"):
+        if route == "predict":
+            predict(manifest, checkpoint, tmp_path / "predictions", split=split,
+                    device="cpu", refinement_steps=0)
+        else:
+            export_verified_pseudo(manifest, checkpoint, tmp_path / "pseudo", device="cpu",
+                                   starts=2, sectors=2, refinement_steps=0, point_budget=8)
+
+
+def test_legacy_checkpoint_remains_readable_for_development_and_unlabeled_export(tmp_path):
+    from task2reg.journal.pseudo import export_verified_pseudo
+    manifest = synthetic_manifest(tmp_path)
+    checkpoint = tmp_path / "legacy.pt"
+    saved = initialization_checkpoint(checkpoint)
+    for key in ("provenance_schema_version", "selection_patient_ids", "selection_content_hashes", "selection_sources"):
+        saved.pop(key)
+    torch.save(saved, checkpoint)
+    result = predict(manifest, checkpoint, tmp_path / "development", split="val",
+                     device="cpu", refinement_steps=0)
+    assert not result["records"][0]["failed"]
+    exported = export_verified_pseudo(manifest, checkpoint, tmp_path / "pseudo", device="cpu",
+                                      starts=2, sectors=2, refinement_steps=0, point_budget=8)
+    assert exported.exists()

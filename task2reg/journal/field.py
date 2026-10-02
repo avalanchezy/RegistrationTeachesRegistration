@@ -109,7 +109,8 @@ def roi_outside_distance(
 class RegistrationField(nn.Module):
     """Unchanged crown U-Net backbone plus dense or implicit distance queries."""
 
-    def __init__(self, base_channels: int = 8, mode: str = "implicit", truncation_mm: float = 8.) -> None:
+    def __init__(self, base_channels: int = 8, mode: str = "implicit", truncation_mm: float = 8.,
+                 energy_mode: str = "distance") -> None:
         super().__init__()
         if mode not in ("dense", "implicit"):
             raise ValueError("mode must be dense or implicit")
@@ -118,6 +119,9 @@ class RegistrationField(nn.Module):
         if not 0 < truncation_mm < float("inf"):
             raise ValueError("truncation_mm must be positive and finite")
         self.mode = mode
+        if energy_mode not in {"distance", "task"}:
+            raise ValueError("energy_mode must be distance or task")
+        self.energy_mode = energy_mode
         self.truncation_mm = float(truncation_mm)
         self.backbone = CrownLocalizerUNet(base_channels=base_channels)
         if mode == "dense":
@@ -133,6 +137,26 @@ class RegistrationField(nn.Module):
                 nn.Linear(128, 128), nn.SiLU(),
                 nn.Linear(128, 64), nn.SiLU(), nn.Linear(64, 1),
             )
+        if energy_mode == "task":
+            self.task_head = (nn.Conv3d(base_channels, 2, kernel_size=1) if mode == "dense"
+                              else nn.Linear(64, 1))
+            self.initialize_task_from_distance()
+
+    def initialize_task_from_distance(self):
+        """Start a task-potential experiment from the same geometric energy."""
+        if self.energy_mode != "task":
+            raise ValueError("task head is not enabled")
+        source = self.distance_head if self.mode == "dense" else self.query_mlp[-1]
+        self.task_head.load_state_dict(source.state_dict())
+
+    def load_distance_initialization(self, state):
+        """Upgrade a distance checkpoint while preserving its initial energy."""
+        if self.energy_mode != "task" or any(key.startswith("task_head.") for key in state):
+            raise ValueError("requires a distance-only state and a task-mode destination")
+        missing, unexpected = self.load_state_dict(state, strict=False)
+        if set(missing) != {"task_head.weight", "task_head.bias"} or unexpected:
+            raise ValueError(f"incompatible distance initialization: missing={missing}, unexpected={unexpected}")
+        self.initialize_task_from_distance()
 
     def encode(self, image: torch.Tensor) -> dict:
         if image.ndim != 5 or image.shape[1] != 1 or min(image.shape[2:]) < 16:
@@ -154,15 +178,34 @@ class RegistrationField(nn.Module):
             features = (F.softplus(self.distance_head(decoded1)),)
         else:
             features = tuple(project(value) for project, value in zip(self.projections, (decoded1, decoded2, decoded3)))
-        return {"logits": logits, "features": features, "input_shape": tuple(image.shape[2:])}
+        result = {"logits": logits, "features": features, "input_shape": tuple(image.shape[2:])}
+        if self.mode == "dense" and self.energy_mode == "task":
+            result["potential_features"] = F.softplus(self.task_head(decoded1))
+        return result
 
     def query(self, context: dict, points_world: torch.Tensor, affine: torch.Tensor, jaw: torch.Tensor) -> torch.Tensor:
+        """Geometric distance in mm; never substitutes the task-potential head."""
+        return self._query(context, points_world, affine, jaw, include_potential=False)
+
+    def registration_query(self, context, points_world, affine, jaw):
+        """Separate task potential from geometric distance used for coverage."""
+        return self._query(context, points_world, affine, jaw, include_potential=True)
+
+    def _query(self, context, points_world, affine, jaw, *, include_potential):
         if jaw.shape != (points_world.shape[0],) or not ((jaw == 0) | (jaw == 1)).all():
             raise ValueError("jaw must have shape [B] with values 0 (upper) or 1 (lower)")
         jaw = jaw.to(device=points_world.device, dtype=torch.long)
         sampled = [sample_features(feature, points_world, affine, context["input_shape"]) for feature in context["features"]]
         if self.mode == "dense":
-            return sampled[0].gather(-1, jaw[:, None, None].expand(-1, points_world.shape[1], 1)).squeeze(-1)
+            index = jaw[:, None, None].expand(-1, points_world.shape[1], 1)
+            distance = sampled[0].gather(-1, index).squeeze(-1)
+            if not include_potential:
+                return distance
+            potential = distance
+            if self.energy_mode == "task":
+                potential = sample_features(context["potential_features"], points_world, affine,
+                                            context["input_shape"]).gather(-1, index).squeeze(-1)
+            return {"distance": distance, "potential": potential}
         voxel = world_to_voxel(points_world, affine)
         extent = voxel.new_tensor(context["input_shape"]) - 1
         normalized = 2 * voxel / extent.clamp_min(1) - 1
@@ -171,11 +214,16 @@ class RegistrationField(nn.Module):
         # NIfTI affines and mesh coordinates commonly arrive as float64 while
         # the learned network is float32; the cast preserves coordinate grads.
         values = values.to(dtype=self.query_mlp[0].weight.dtype)
-        return F.softplus(self.query_mlp(values).squeeze(-1))
+        hidden = self.query_mlp[:-1](values)
+        distance = F.softplus(self.query_mlp[-1](hidden).squeeze(-1))
+        if not include_potential:
+            return distance
+        potential = F.softplus(self.task_head(hidden).squeeze(-1)) if self.energy_mode == "task" else distance
+        return {"distance": distance, "potential": potential}
 
 
 def registration_energy(
-    distances: torch.Tensor,
+    distances: torch.Tensor | dict[str, torch.Tensor],
     points_world: torch.Tensor,
     affine: torch.Tensor,
     input_shape: Sequence[int],
@@ -186,21 +234,32 @@ def registration_energy(
     coverage_temperature_mm: float = .25,
     robust_epsilon_mm: float = .1,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-    """All-point pseudo-Huber fit plus soft coverage and physical ROI penalties."""
+    """Potential fit plus geometric coverage and physical ROI penalties.
+
+    A tensor retains the historical distance-only energy. A query dictionary
+    keeps metric geometry and learned task values separate; both are nonnegative
+    but the potential must not be interpreted as a surface distance.
+    """
+    potential = distances["potential"] if isinstance(distances, dict) else distances
+    distances = distances["distance"] if isinstance(distances, dict) else distances
     if distances.shape != points_world.shape[:2] or distances.shape[-1] == 0:
         raise ValueError("distances must match nonempty points [B,N]")
     if not torch.isfinite(distances).all() or (distances < 0).any():
         raise ValueError("distances must be finite and nonnegative")
+    if potential.shape != distances.shape or not torch.isfinite(potential).all() or (potential < 0).any():
+        raise ValueError("potential must match distances and be finite and nonnegative")
     if coverage_temperature_mm <= 0 or robust_epsilon_mm <= 0 or coverage_weight < 0 or outside_weight < 0:
         raise ValueError("energy scales must be positive and weights nonnegative")
     outside = roi_outside_distance(points_world, affine, input_shape)
     robust = torch.sqrt(distances.square() + robust_epsilon_mm ** 2) - robust_epsilon_mm
     coverage = torch.sigmoid((coverage_threshold_mm - distances) / coverage_temperature_mm).mean(-1)
     distance_energy = robust.mean(-1)
+    potential_energy = (torch.sqrt(potential.square() + robust_epsilon_mm ** 2) - robust_epsilon_mm).mean(-1)
     outside_energy = outside.mean(-1)
-    energy = distance_energy + coverage_weight * (1 - coverage) + outside_weight * outside_energy
+    energy = potential_energy + coverage_weight * (1 - coverage) + outside_weight * outside_energy
     return energy, {
         "distance_energy": distance_energy,
+        "potential_energy": potential_energy,
         "coverage": coverage,
         "outside_distance_mm": outside_energy,
         "outside_fraction": (outside > 1e-5).to(distances.dtype).mean(-1),
@@ -252,12 +311,16 @@ def pairwise_rank_loss(
 
 def eikonal_loss(
     distances: torch.Tensor, points_world: torch.Tensor, target_mm: torch.Tensor,
-    *, minimum_mm: float = .5, maximum_mm: float = 3.,
+    *, minimum_mm: float = .5, maximum_mm: float = 3., valid_mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Physical unit-gradient penalty away from the unsigned-distance cusp."""
     if distances.shape != target_mm.shape or distances.shape != points_world.shape[:2]:
         raise ValueError("distance/target/query shapes must match")
     selected = (target_mm > minimum_mm) & (target_mm < maximum_mm)
+    if valid_mask is not None:
+        if valid_mask.shape != distances.shape or valid_mask.dtype != torch.bool:
+            raise ValueError("valid_mask must be boolean and match distance shape")
+        selected = selected & valid_mask
     if not selected.any():
         return distances.sum() * 0
     gradients = torch.autograd.grad(distances.sum(), points_world, create_graph=True, retain_graph=True)[0]

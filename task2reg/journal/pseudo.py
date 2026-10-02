@@ -7,10 +7,10 @@ import numpy as np
 import torch
 
 from .data import load_case, load_journal_manifest, validate_protocol
-from .engine import candidate_energies, encode_case, tensor
+from .engine import _selection_history, candidate_energies, encode_case, tensor
 from .field import centered_increment, refine_transform, roi_outside_distance, transform_points
 from .inference import load_field, record_directory, score_and_refine
-from .runtime import sha256_file, write_json
+from .runtime import canonical_hash, sha256_file, write_json
 from .verification import VerificationConfig, transform_medoid, verify_registration
 
 
@@ -35,6 +35,12 @@ def spatial_sectors(points, count=4):
     return sectors
 
 
+def verification_seed(record, seed):
+    """Stable case randomization, shared by development audit and pseudo export."""
+    return int(canonical_hash(dict(version=1, seed=int(seed),
+                                    identity={k: record[k] for k in ("source", "case_id", "jaw")}))[:16], 16)
+
+
 def verify_case(model, case, record, device, *, config=None, starts=8, sectors=4,
                 refinement_steps=20, point_budget=4096, learning_rate=.25, seed=0):
     if starts < sectors or sectors < 2 or point_budget < sectors * 2:
@@ -43,7 +49,8 @@ def verify_case(model, case, record, device, *, config=None, starts=8, sectors=4
     if "candidates" not in case or not len(case["candidates"]):
         raise ValueError("verification requires cached initial candidates")
     candidates = case["candidates"]
-    rng = np.random.default_rng(seed)
+    effective_seed = verification_seed(record, seed)
+    rng = np.random.default_rng(effective_seed)
     subset = rng.choice(len(case["points"]), min(point_budget, len(case["points"])), replace=False)
     points_np = case["points"][subset]
     partition = spatial_sectors(points_np, sectors)
@@ -69,7 +76,7 @@ def verify_case(model, case, record, device, *, config=None, starts=8, sectors=4
         initial = tensor(candidates[order[run % len(order)]], device)[None]
         twist = tensor(np.r_[rng.normal(0, .005, 3), rng.normal(0, .1, 3)], device)[None]
         initial = centered_increment(initial, twist, transform_points(fitting, initial).mean(dim=1))
-        result = refine_transform(lambda p: model.query(context, p, affine, jaw), fitting, initial,
+        result = refine_transform(lambda p: model.registration_query(context, p, affine, jaw), fitting, initial,
                                   affine, shape, steps=refinement_steps, learning_rate=learning_rate)
         transform = result["transform"]
         refined.append(transform[0].cpu().numpy())
@@ -84,7 +91,7 @@ def verify_case(model, case, record, device, *, config=None, starts=8, sectors=4
     # for the independent task of scanning the entire pool for ambiguity.
     rows = score_and_refine(model, case, record, device,
                             refinement_steps=refinement_steps, learning_rate=learning_rate,
-                            point_budget=point_budget, seed=seed)
+                            point_budget=point_budget, seed=effective_seed)
     ambiguity_candidates = np.asarray([r["transform"] for r in rows])
     medoid = refined[transform_medoid(refined, case["anchors"])]
     all_points = tensor(case["points"], device)[None]
@@ -99,7 +106,8 @@ def verify_case(model, case, record, device, *, config=None, starts=8, sectors=4
                                  sector_ids=spatial_sectors(case["points"], sectors), outside_mask=outside,
                                  candidate_transforms=pool, candidate_energies=energies.cpu().numpy(), config=config)
     result["run_settings"] = dict(starts=starts, sectors=sectors, refinement_steps=refinement_steps,
-                                  point_budget=point_budget, learning_rate=learning_rate, seed=seed)
+                                  point_budget=point_budget, learning_rate=learning_rate, seed=seed,
+                                  effective_seed=effective_seed, seed_derivation="identity-v1")
     return result
 
 
@@ -171,6 +179,15 @@ def export_verified_pseudo(manifest, checkpoint, output_dir, *, data_root=None, 
     if not targets:
         raise ValueError("no unlabeled records; locked evaluation sources cannot generate pseudo supervision")
     model, saved = load_field(checkpoint, device)
+    locked = [r for r in records if r["split"] in {"test", "external_test"}]
+    if locked:
+        selection_patients, selection_hashes, selection_sources = _selection_history(saved, "pseudo teacher")
+        if {r["patient_id"] for r in locked} & selection_patients:
+            raise ValueError("pseudo teacher selection used locked evaluation patients")
+        if {r["content_hash"] for r in locked if r.get("content_hash")} & selection_hashes:
+            raise ValueError("pseudo teacher selection used locked evaluation image content")
+        if {r["source"] for r in locked if r["split"] == "external_test"} & selection_sources:
+            raise ValueError("pseudo teacher selection used a locked external source")
     evaluation_patients = {r["patient_id"] for r in records if r["split"] in {"val", "test", "external_test"}}
     excluded = set(saved["excluded_patient_ids"])
     if not evaluation_patients.issubset(excluded) or evaluation_patients & set(saved["training_patient_ids"]):
@@ -182,10 +199,10 @@ def export_verified_pseudo(manifest, checkpoint, output_dir, *, data_root=None, 
     if evaluation_hashes & set(saved.get("training_content_hashes", [])):
         raise ValueError("teacher used evaluation image content")
     evidence = []
-    for index, row in enumerate(targets):
+    for row in targets:
         result = verify_case(model, load_case(row), row, device, config=config,
                              starts=starts, sectors=sectors, refinement_steps=refinement_steps,
-                             point_budget=point_budget, learning_rate=learning_rate, seed=seed + index)
+                             point_budget=point_budget, learning_rate=learning_rate, seed=seed)
         evidence.append((row, result))
         print(f"{row['case_id']} {row['jaw']}: {'accepted' if result['accepted'] else ', '.join(result['reasons'])}", flush=True)
     return assemble_pseudo_manifest(records, evidence, output_dir, teacher_id=sha256_file(checkpoint),

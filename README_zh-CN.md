@@ -4,9 +4,10 @@
 半监督配准方法源码。
 
 本分支新增面向 KBS 扩刊的**可训练研究实现**：连续 unsigned registration
-field、困难候选排序、保持 parity 的局部优化、配准验证的空间伪监督，以及
-患者隔离的训练/评估流程。尚未进行真实数据训练，下面原挑战赛成绩不代表新方法成绩。
+field、与几何距离分离的任务势能头、困难位姿邻域的物理 SE(3) 能量差分监督、
+保持 parity 的局部优化和空间伪监督。尚未进行真实数据训练，下面原挑战赛成绩不代表新方法成绩。
 
+- [核心科学问题、方法公式与六组直接对照](docs/JOURNAL_METHOD_zh-CN.md)
 - [另一台电脑的训练步骤](docs/JOURNAL_TRAINING_zh-CN.md)
 - [现有接口、统一预处理与患者划分](docs/JOURNAL_DATA_zh-CN.md)
 - [方法判断、KBS 扩刊方案与实验协议](docs/JOURNAL_RESEARCH_PLAN_zh-CN.md)

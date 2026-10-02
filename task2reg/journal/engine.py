@@ -9,7 +9,7 @@ import torch
 from task2reg.crown_network import crown_localizer_loss, normalize_hu
 from .config import TrainingConfig
 from .data import load_journal_manifest, load_case, sample_queries
-from .field import (RegistrationField, eikonal_loss, fixed_point_error,
+from .field import (RegistrationField, centered_increment, eikonal_loss, fixed_point_error,
                     pairwise_rank_loss, refine_transform, registration_energy,
                     transform_points, weighted_huber_loss)
 from .runtime import (atomic_checkpoint, float_context, load_checkpoint,
@@ -42,7 +42,9 @@ def candidate_energies(model, context, points, candidates, affine, jaw, shape, *
         return (torch.cat([item[0] for item in chunks]),
                 {key: torch.cat([item[1][key] for item in chunks]) for key in chunks[0][1]})
     moved = transform_points(points.expand(count, -1, -1), candidates)
-    distances = model.query(context, moved.reshape(1, -1, 3), affine, jaw).reshape(count, -1)
+    query = getattr(model, "registration_query", model.query)(context, moved.reshape(1, -1, 3), affine, jaw)
+    distances = ({key: value.reshape(count, -1) for key, value in query.items()}
+                 if isinstance(query, dict) else query.reshape(count, -1))
     energies, diagnostics = registration_energy(distances, moved, affine.expand(count, -1, -1), shape)
     return energies, diagnostics
 
@@ -80,16 +82,20 @@ def case_loss(model, case, record, config, device, rng, epoch, *, training):
     if config.eikonal_weight and training and not pseudo:
         query = points_world[:, :config.eikonal_queries].detach().requires_grad_(True)
         values = model.query(context, query, affine, jaw)
-        regularizer = eikonal_loss(values, query, targets[:, :config.eikonal_queries])
+        regularizer = eikonal_loss(values, query, targets[:, :config.eikonal_queries],
+                                  valid_mask=weights[:, :config.eikonal_queries] > 0)
         loss = loss + config.eikonal_weight * regularizer
         metrics["eikonal"] = float(regularizer.detach())
     # A pseudo transform is never a manual target for ranking or pose supervision.
-    if not pseudo and (config.rank_weight or config.pose_weight):
-        if "candidates" not in case or len(case["candidates"]) < 2:
+    if not pseudo and (config.rank_weight or config.pose_weight or config.secant_weight):
+        available = len(case.get("candidates", []))
+        if (config.rank_weight or config.pose_weight) and available < 2:
             raise ValueError("ranking/pose supervision requires at least two cached OOF or geometry-only candidates")
+        if config.secant_weight and config.secant_cached_candidates and not available:
+            raise ValueError("cached secant supervision requires at least one cached candidate")
         anchors = tensor(case.get("anchors", case["points"]), device)[None]
         reference = tensor(case["transform"], device)[None]
-        candidates = tensor(case["candidates"], device)
+        candidates = tensor(case["candidates"], device) if available else reference.clone()
         errors = fixed_point_error(candidates, reference.expand(len(candidates), -1, -1),
                                    anchors.expand(len(candidates), -1, -1))
         # Stratify by actual displacement, then randomize within bins. Include
@@ -115,10 +121,11 @@ def case_loss(model, case, record, config, device, rng, epoch, *, training):
         metrics["rank"] = float(ranking.detach())
         metrics["selected_D_mm"] = float(errors[energies.detach().argmin()])
         if config.pose_weight and training and epoch >= config.rank_warmup_epochs:
-            eligible = torch.where((errors > .5) & (errors < 15.))[0]
+            same_parity = torch.linalg.det(candidates[:, :3, :3]) * torch.linalg.det(reference[:, :3, :3]) > 0
+            eligible = torch.where((errors > .5) & (errors < 15.) & same_parity)[0]
             if len(eligible):
                 index = int(eligible[int(rng.integers(len(eligible)))])
-                refined = refine_transform(lambda p: model.query(context, p, affine, jaw), points,
+                refined = refine_transform(lambda p: model.registration_query(context, p, affine, jaw), points,
                                            candidates[index:index+1], affine, shape,
                                            steps=config.pose_steps,
                                            learning_rate=config.refinement_learning_rate,
@@ -126,6 +133,39 @@ def case_loss(model, case, record, config, device, rng, epoch, *, training):
                 pose = fixed_point_error(refined["transform"], reference, anchors).mean()
                 loss = loss + config.pose_weight * pose
                 metrics["pose"] = float(pose.detach())
+        if config.secant_weight and training and epoch >= config.rank_warmup_epochs:
+            from .pose_supervision import pose_secant_loss
+            subset = rng.choice(len(case["points"]), min(config.secant_points, len(case["points"])), replace=False)
+            shaping_points = tensor(case["points"][subset], device)[None]
+            with torch.no_grad():
+                parity = torch.sign(torch.linalg.det(candidates[:, :3, :3]))
+                target_parity = torch.sign(torch.linalg.det(reference[:, :3, :3]))
+                eligible = torch.where((errors > .5) & (errors < 15.) & (parity == target_parity))[0]
+                deceptive = eligible[torch.argsort(energies.detach()[eligible])][:config.secant_cached_candidates]
+                starts = [candidates[index:index+1] for index in deceptive]
+                moved = transform_points(shaping_points, reference)
+                center = moved.mean(1)
+                radius = (moved - center[:, None]).square().sum(-1).mean(-1).clamp_min(1.).sqrt()
+                for _ in range(config.secant_reference_perturbations):
+                    direction = rng.normal(size=(2, 3))
+                    direction /= np.linalg.norm(direction, axis=1, keepdims=True)
+                    direction *= rng.uniform(.025, 1., size=(2, 1)) * config.secant_perturbation_mm
+                    twist = tensor(direction.reshape(1, 6), device)
+                    twist[:, :3] /= radius[:, None]
+                    starts.append(centered_increment(reference, twist, center))
+            if starts:
+                # Vary physical finite-difference scale so one periodic stencil
+                # cannot consistently hide a wrong local derivative.
+                step_mm = config.secant_step_mm * float(np.exp(rng.uniform(np.log(.5), np.log(2.))))
+                shaping, parts = pose_secant_loss(
+                    lambda transforms: candidate_energies(model, context, shaping_points, transforms, affine, jaw, shape)[0],
+                    torch.cat(starts), reference, shaping_points, anchors,
+                    step_mm=step_mm, smoothing_mm=config.secant_smoothing_mm,
+                    local_minimum_weight=config.secant_local_minimum_weight)
+                loss = loss + config.secant_weight * ramp * shaping
+                metrics.update(secant=float(shaping.detach()), secant_step_mm=step_mm,
+                               secant_cached_used=float(len(deceptive)),
+                               **{f"secant_{name}": float(value) for name, value in parts.items()})
     return loss, metrics
 
 
@@ -141,7 +181,24 @@ def select_pseudo_records(rows, max_cases):
 
 @torch.no_grad()
 def validation_score(model, case, record, config, device):
-    """One fixed patient-aggregated criterion, independent of training schedules."""
+    """One fixed patient-aggregated criterion, independent of training schedules.
+
+    ``selected_D_mm`` measures raw candidate selection only. Opt into
+    ``refined_selected_D_mm`` to select checkpoints by the deployed refinement
+    and re-selection route, with its explicit validation compute budget.
+    """
+    if config.validation_metric == "refined_selected_D_mm":
+        from .inference import score_and_refine
+        rows = score_and_refine(model, case, record, device,
+                                refinement_steps=config.validation_refinement_steps,
+                                learning_rate=config.validation_refinement_learning_rate,
+                                point_budget=config.validation_point_budget, seed=config.seed + 100000)
+        energies = np.asarray([row["field_energy"] for row in rows])
+        if not np.isfinite(energies).all():
+            raise FloatingPointError("nonfinite refined validation candidate energy")
+        best = tensor(rows[int(energies.argmin())]["transform"], device)[None]
+        return float(fixed_point_error(best, tensor(case["transform"], device)[None],
+                                      tensor(case["anchors"], device)[None])[0])
     context = encode_case(model, case, device)
     affine = tensor(case["affine"], device)[None]
     jaw = torch.tensor([int(record["jaw"] == "lower")], device=device)
@@ -158,6 +215,20 @@ def validation_score(model, case, record, config, device):
     energies, _ = candidate_energies(model, context, points, candidates, affine, jaw, case["image"].shape)
     best = candidates[energies.argmin()][None]
     return float(fixed_point_error(best, tensor(case["transform"], device)[None], tensor(case["anchors"], device)[None])[0])
+
+
+def _selection_history(provenance, description):
+    """Unknown legacy model-selection history must never become an empty set."""
+    if provenance.get("provenance_schema_version") != 2:
+        raise ValueError(f"{description} selection history requires provenance_schema_version=2; "
+                         "start a new initialized run with audited initialization_provenance for legacy checkpoints")
+    result = []
+    for key in ("selection_patient_ids", "selection_content_hashes", "selection_sources"):
+        values = provenance.get(key)
+        if not isinstance(values, list) or any(not isinstance(value, str) or not value.strip() for value in values):
+            raise ValueError(f"{description} selection provenance requires an explicit {key} list")
+        result.append(set(values))
+    return tuple(result)
 
 
 def train(manifest, output_dir, config, *, data_root=None, resume=None, initialize_support=None, initialize_field=None,
@@ -186,8 +257,9 @@ def train(manifest, output_dir, config, *, data_root=None, resume=None, initiali
         raise FileExistsError("run already exists; use --resume or a fresh output directory")
     fingerprint = manifest_fingerprint(records)
     set_seed(config.seed)
-    model = RegistrationField(config.base_channels, config.mode, config.truncation_mm).to(device)
+    model = RegistrationField(config.base_channels, config.mode, config.truncation_mm, config.energy_mode).to(device)
     initialization = None
+    resumed_selection = (set(), set(), set())
     if initialize_support or initialize_field:
         if resume or (initialize_support and initialize_field):
             raise ValueError("resume, initialize_field and initialize_support are mutually exclusive")
@@ -196,12 +268,40 @@ def train(manifest, output_dir, config, *, data_root=None, resume=None, initiali
             for name in ("base_channels", "mode", "truncation_mm"):
                 if getattr(config, name) != initial_checkpoint["config"][name]:
                     raise ValueError(f"field initialization architecture differs: {name}")
-            initialization = {key: initial_checkpoint.get(key, []) for key in
-                              ("training_patient_ids", "training_sources", "training_content_hashes", "excluded_patient_ids")}
+            initialization = {key: initial_checkpoint[key] for key in
+                              ("training_patient_ids", "training_sources", "training_content_hashes", "excluded_patient_ids",
+                               "provenance_schema_version", "selection_patient_ids", "selection_content_hashes", "selection_sources")
+                              if key in initial_checkpoint}
+            if initialization_provenance is not None:
+                audit = json.loads(Path(initialization_provenance).read_text())
+                if not isinstance(audit, dict):
+                    raise ValueError("initialization provenance must be an object")
+                if audit.get("checkpoint_sha256") != sha256_file(initialize_field):
+                    raise ValueError("initialization provenance checkpoint_sha256 does not match the field checkpoint")
+                _selection_history(audit, "audited initialization")
+                # A sidecar may add missing historical evidence, but cannot
+                # erase training or selection already recorded in the source.
+                for key in ("training_patient_ids", "training_sources", "training_content_hashes",
+                            "selection_patient_ids", "selection_content_hashes", "selection_sources"):
+                    previous, declared = initialization.get(key, []), audit.get(key)
+                    if not isinstance(previous, list) or not isinstance(declared, list):
+                        raise ValueError(f"initialization provenance requires {key}")
+                    audit[key] = sorted(set(previous) | set(declared))
+                initialization = audit
         else:
             if initialization_provenance is None:
                 raise ValueError("support initialization requires audited initialization provenance")
             initialization = json.loads(Path(initialization_provenance).read_text())
+        if not isinstance(initialization, dict):
+            raise ValueError("initialization provenance must be an object")
+        previous_selection, previous_selection_hashes, previous_selection_sources = _selection_history(initialization, "initialization")
+        locked_rows = [r for r in records if r["split"] in {"test", "external_test"}]
+        if {r["patient_id"] for r in locked_rows} & previous_selection:
+            raise ValueError("initialization selection patients cannot become locked test patients")
+        if {r["content_hash"] for r in locked_rows if r.get("content_hash")} & previous_selection_hashes:
+            raise ValueError("initialization selection image content cannot become locked test content")
+        if {r["source"] for r in locked_rows if r["split"] == "external_test"} & previous_selection_sources:
+            raise ValueError("initialization selection used a locked external source")
         required = {r["patient_id"] for r in records if r["split"] in {"val", "test", "external_test"}}
         if not required.issubset(set(initialization.get("excluded_patient_ids", []))):
             raise ValueError("initialization provenance does not exclude all evaluation patients")
@@ -216,7 +316,13 @@ def train(manifest, output_dir, config, *, data_root=None, resume=None, initiali
             raise ValueError("initialization used evaluation image content")
         initialization["checkpoint_sha256"] = sha256_file(initialize_field or initialize_support)
         if initialize_field:
-            model.load_state_dict(initial_checkpoint["model"], strict=True)
+            source_energy = initial_checkpoint["config"].get("energy_mode", "distance")
+            if source_energy == "distance" and config.energy_mode == "task":
+                model.load_distance_initialization(initial_checkpoint["model"])
+            elif source_energy == config.energy_mode:
+                model.load_state_dict(initial_checkpoint["model"], strict=True)
+            else:
+                raise ValueError("task-to-distance initialization is not supported; use the common distance teacher")
         else:
             old = torch.load(initialize_support, map_location="cpu", weights_only=False)
             model.backbone.load_state_dict(old.get("state_dict", old), strict=True)
@@ -225,6 +331,7 @@ def train(manifest, output_dir, config, *, data_root=None, resume=None, initiali
     start, global_step, best = 0, 0, float("inf")
     if resume:
         saved = load_checkpoint(resume, device)
+        resumed_selection = _selection_history(saved, "resume checkpoint")
         if _resume_contract(config) != _resume_contract(TrainingConfig(**saved["config"])):
             raise ValueError("resume configuration changed; initialize a new experiment instead")
         if fingerprint != saved["manifest_fingerprint"]:
@@ -239,9 +346,17 @@ def train(manifest, output_dir, config, *, data_root=None, resume=None, initiali
     train_patients = sorted({r["patient_id"] for r in train_rows + pseudo_rows} | set(initial_provenance.get("training_patient_ids", [])))
     train_sources = sorted({r["source"] for r in train_rows + pseudo_rows} | set(initial_provenance.get("training_sources", [])))
     train_hashes = sorted({r["content_hash"] for r in train_rows + pseudo_rows if r.get("content_hash")} | set(initial_provenance.get("training_content_hashes", [])))
+    selection_patients = sorted({r["patient_id"] for r in val_rows}
+                                | set(initial_provenance.get("selection_patient_ids", [])) | resumed_selection[0])
+    selection_hashes = sorted({r["content_hash"] for r in val_rows if r.get("content_hash")}
+                              | set(initial_provenance.get("selection_content_hashes", [])) | resumed_selection[1])
+    selection_sources = sorted({r["source"] for r in val_rows}
+                               | set(initial_provenance.get("selection_sources", [])) | resumed_selection[2])
+    selection_provenance = {"provenance_schema_version": 2, "selection_patient_ids": selection_patients,
+                            "selection_content_hashes": selection_hashes, "selection_sources": selection_sources}
     metadata = runtime_metadata()
     write_json(output_dir / "config.json", config.as_dict())
-    write_json(output_dir / "provenance.json", {**metadata, "manifest_fingerprint": fingerprint,
+    write_json(output_dir / "provenance.json", {**metadata, **selection_provenance, "manifest_fingerprint": fingerprint,
                "train_patient_ids": train_patients, "training_sources": train_sources,
                "training_content_hashes": train_hashes, "initialization": initialization,
                "excluded_patient_ids": sorted({r["patient_id"] for r in records if r["split"] in {"val","test","external_test"}}),
@@ -300,7 +415,7 @@ def train(manifest, output_dir, config, *, data_root=None, resume=None, initiali
                   "loss_components": {name: float(np.mean(values)) for name, values in component_values.items()}}
         with (output_dir / "metrics.jsonl").open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(report, allow_nan=False) + "\n")
-        saved = {"format": "rtr-journal-field-v1", "model": model.state_dict(),
+        saved = {"format": "rtr-journal-field-v1", **selection_provenance, "model": model.state_dict(),
                  "optimizer": optimizer.state_dict(), "scaler": scaler.state_dict(),
                  "rng": rng_state(), "config": config.as_dict(), "epoch": epoch,
                  "global_step": global_step, "best_validation_loss": best,

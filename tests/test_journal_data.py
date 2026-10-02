@@ -138,7 +138,7 @@ def test_queries_are_reproducible_physical_distances_and_uncertainty_weights():
     all_distances = np.linalg.norm(a["points_world"][:, None] - surface[None], axis=2)
     nearest = all_distances.argmin(axis=1)
     np.testing.assert_allclose(a["targets"], np.minimum(all_distances.min(axis=1), 5), atol=1e-6)
-    np.testing.assert_allclose(a["weights"], case["point_weights"][nearest])
+    np.testing.assert_allclose(a["weights"], case["point_weights"][nearest] * a["in_roi"])
     assert np.sum(a["targets"] < 1e-5) >= 10
 
 
@@ -151,6 +151,23 @@ def test_query_candidates_are_sampled_in_world_coordinates():
     moved = case["points"] + candidate[:3, 3]
     distance = np.linalg.norm(result["points_world"][:, None] - moved[None], axis=2)
     assert np.sum(distance.min(axis=1) < 1e-6) >= 10
+
+
+def test_queries_outside_affine_roi_have_no_reconstruction_supervision():
+    case = payload()
+    case["affine"] = np.array([[0., -2., .2, 10.], [1., 0., 0., -5.],
+                               [0., 0., 3., 12.], [0., 0., 0., 1.]])
+    case["transform"] = np.eye(4)
+    # Surface on the boundary forces near/outer sampling to visit both sides.
+    ijk = np.array([[0., 2., 2.], [0., 3., 2.], [0., 2., 3.], [0., 3., 3.]])
+    case["points"] = ijk @ case["affine"][:3, :3].T + case["affine"][:3, 3]
+    samples = api().sample_queries(case, 1000, np.random.default_rng(11))
+    inverse = np.linalg.inv(case["affine"])
+    voxel = samples["points_world"] @ inverse[:3, :3].T + inverse[:3, 3]
+    inside = ((voxel >= -1e-5) & (voxel <= np.array(case["image"].shape) - 1 + 1e-5)).all(axis=1)
+    assert np.any(~inside) and np.any(inside)
+    assert np.all(samples["weights"][~inside] == 0)
+    assert np.any(samples["weights"][inside] > 0)
 
 
 def test_pseudo_queries_ignore_unknown_space(tmp_path):

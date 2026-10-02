@@ -9,7 +9,7 @@ import torch
 from .config import TrainingConfig
 from .data import load_case, load_journal_manifest
 from .field import RegistrationField, refine_transform
-from .engine import candidate_energies, encode_case, tensor
+from .engine import _selection_history, candidate_energies, encode_case, tensor
 from .runtime import load_checkpoint, sha256_file, write_json
 
 
@@ -22,7 +22,7 @@ def record_directory(record):
 def load_field(path, device):
     saved = load_checkpoint(path, "cpu")
     config = TrainingConfig(**saved["config"])
-    model = RegistrationField(config.base_channels, config.mode, config.truncation_mm).to(device)
+    model = RegistrationField(config.base_channels, config.mode, config.truncation_mm, config.energy_mode).to(device)
     model.load_state_dict(saved["model"])
     model.eval()
     model.requires_grad_(False)
@@ -43,7 +43,7 @@ def score_and_refine(model, case, record, device, *, refinement_steps=20,
     initial = tensor(case["candidates"], device)
     rows = []
     for index in range(len(initial)):
-        result = refine_transform(lambda p: model.query(context, p, affine, jaw), points,
+        result = refine_transform(lambda p: getattr(model, "registration_query", model.query)(context, p, affine, jaw), points,
                                   initial[index:index+1], affine, case["image"].shape,
                                   steps=refinement_steps, learning_rate=learning_rate)
         rows.append({"candidate_id": f"cached:{index}", "initial_transform": initial[index].cpu().tolist(),
@@ -74,6 +74,14 @@ def predict(manifest, checkpoint, output_dir, *, split="test", device="cuda",
         raise ValueError("evaluation image content was used to train the checkpoint")
     if split == "external_test" and {r["source"] for r in selected} & set(saved.get("training_sources", [])):
         raise ValueError("external test source was used to train the checkpoint")
+    if split in {"test", "external_test"}:
+        selection_patients, selection_hashes, selection_sources = _selection_history(saved, "evaluation checkpoint")
+        if {r["patient_id"] for r in selected} & selection_patients:
+            raise ValueError("evaluation patient was used for checkpoint selection")
+        if {r["content_hash"] for r in selected if r.get("content_hash")} & selection_hashes:
+            raise ValueError("evaluation image content was used for checkpoint selection")
+        if split == "external_test" and {r["source"] for r in selected} & selection_sources:
+            raise ValueError("external test source was used for checkpoint selection")
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     rows, evaluation = [], []

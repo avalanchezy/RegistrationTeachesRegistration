@@ -10,7 +10,8 @@ of a journal submission.
 | Check | Result |
 |---|---|
 | Original repository test suite before changes | 126 passed |
-| Final full suite, including 107 new tests | 233 passed |
+| First implementation full suite | 233 passed |
+| Method revision full suite | 364 passed |
 | Historical runtime source checksums / source-release audit | Passed |
 | Ten new command-line entrypoints, `--help` | Passed |
 | All journal training and verification JSON configurations | Parsed/validated |
@@ -19,6 +20,11 @@ of a journal submission.
 | Resume versus uninterrupted training, same CPU environment | Exactly equal checkpoint parameters |
 | Legacy support SSL and verified-field SSL student integration | Both trained from a supervised teacher checkpoint |
 | Independent review | Reported blocking findings corrected and scoped fixes reviewed |
+| Distance-to-task initialization, dense and implicit | Same initial energy; refinement agrees within floating-point tolerance |
+| Dual-head physical secant method, CPU and CUDA AMP | Real parameter update; trained task checkpoint predicts/refines successfully |
+| All six M1–M6 method controls on a small synthetic case | One effective second-stage update per configuration |
+| Exact UDF geometry probe | Reproduces wrong 1D minima and exact-symmetry ambiguity; no patient-performance claim |
+| True gradient versus secant alias | Opposite autograd direction detected despite positive finite-scale secant |
 
 Test environment: Python 3.11, PyTorch 2.6.0+cu124, NumPy 2.2.6,
 SciPy 1.15.3, pytest 8.4.2. CUDA testing used only a small synthetic volume;
@@ -32,6 +38,9 @@ python scripts/audit_source_release.py
 git diff --check
 python scripts/smoke_registration_field.py --output-dir /tmp/rtr-smoke-cpu --device cpu
 python scripts/smoke_registration_field.py --output-dir /tmp/rtr-smoke-cuda --device cuda --amp
+python scripts/smoke_registration_field.py --output-dir /tmp/rtr-method-cpu --device cpu --task-potential
+python scripts/smoke_registration_field.py --output-dir /tmp/rtr-method-cuda --device cuda --amp --task-potential
+python scripts/probe_registration_energy_geometry.py --output-dir /tmp/rtr-geometry-probe
 ```
 
 ## Behaviors covered
@@ -52,6 +61,13 @@ python scripts/smoke_registration_field.py --output-dir /tmp/rtr-smoke-cuda --de
 - Legacy selected pseudo-mask conversion, accepted/rejected field pseudo export,
   failed predictions retained in evaluation, patient bootstrap and paired target
   consistency, parity failure, and separate manual/silver evidence.
+- Separate geometric and task outputs, shared-feature warm start, same-parity
+  local supervision, physically scaled SE(3) secants and positive reference gaps.
+  A first-order-only differentiable function trains successfully without double
+  backward; the actual network also receives finite gradients.
+- Reference-centered convergence with identical starts across methods, actual
+  gradient direction and patient summaries; same accepted pseudo geometry with
+  uniform-positive weight controls. Neither is evidence of real-data gains.
 
 The original all-zero normalized smoke image exposed pathological repeated
 GroupNorm gradients in FP16. The final smoke uses a structured shell phantom

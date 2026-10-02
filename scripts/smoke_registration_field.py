@@ -21,6 +21,7 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--amp", action="store_true")
+    parser.add_argument("--task-potential", action="store_true", help="also warm-start and train the dual-head secant method")
     args = parser.parse_args()
     output = args.output_dir.resolve()
     if output.exists() and any(output.iterdir()):
@@ -66,6 +67,18 @@ def main():
     weights_changed = any(not torch.equal(first_state[name], value) for name, value in final_state.items())
     if training_result["global_step"] == 0 or not weights_changed:
         raise RuntimeError("smoke did not perform effective optimizer updates; inspect AMP/gradient logs")
+    method_result = None
+    if args.task_potential:
+        method_config = replace(config, energy_mode="task", epochs=1, secant_weight=.25,
+                                secant_points=32, secant_cached_candidates=1, secant_reference_perturbations=1,
+                                rank_warmup_epochs=0, rank_ramp_epochs=1, pose_weight=0., eikonal_weight=0.,
+                                validation_metric="refined_selected_D_mm", validation_refinement_steps=1,
+                                validation_point_budget=64)
+        method_result = train(manifest, output / "task_training", method_config, initialize_field=checkpoint)
+        checkpoint = output / "task_training/last.pt"
+        state = load_checkpoint(checkpoint)["model"]
+        if method_result["global_step"] == 0 or torch.equal(state["task_head.weight"], state["query_mlp.6.weight"]):
+            raise RuntimeError("task-potential smoke did not update the separate task head")
     predict(manifest, checkpoint, output / "predictions", split="val", device=args.device,
             refinement_steps=2, point_budget=64, evaluate=True)
     evaluation = json.loads((output / "predictions/evaluation_input.json").read_text())
@@ -76,6 +89,8 @@ def main():
     status = {"smoke_status": "complete", "device": args.device, "amp": args.amp,
               "synthetic_only": True, "artifacts": str(output),
               "effective_updates": training_result["global_step"], "weights_changed": weights_changed}
+    if method_result is not None:
+        status["task_potential_updates"] = method_result["global_step"]
     write_json(output / "smoke_result.json", status)
     print(json.dumps(status), flush=True)
 
