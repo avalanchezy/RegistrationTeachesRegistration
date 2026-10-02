@@ -78,7 +78,7 @@ Consumes Tasks 1–3 through their explicit interfaces.
 - [x] Provide synthetic smoke, six-group configs and portable environment setup.
 - [x] Document current-interface conversion and full remote training sequence.
 - [x] Run focused and full tests, release audit, independent branch review.
-- [ ] Commit and push `research/kbs-registration-field`; verify remote SHA.
+- [x] Commit and push `research/kbs-registration-field`; verify remote SHA.
 
 ## Execution decisions
 
