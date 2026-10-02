@@ -8,34 +8,44 @@ typical case is:
 ```text
 <data-root>/
   Train-Labeled/
-    003/
-      CBCT.nii.gz
-      upper.stl
-      lower.stl
-      upper_gt.npy
-      lower_gt.npy
+    images/
+      003/
+        CBCT.nii.gz
+        upper.stl
+        lower.stl
+    labels/
+      003/
+        upper_gt.npy
+        lower_gt.npy
   Train-Unlabeled/
-    <case_id>/
-      CBCT.nii.gz
-      upper.stl
-      lower.stl
+    images/
+      <case_id>/
+        CBCT.nii.gz
+        upper.stl
+        lower.stl
   Validation/
-    <case_id>/
-      CBCT.nii.gz
-      upper.stl
-      lower.stl
+    images/
+      <case_id>/
+        CBCT.nii.gz
+        upper.stl
+        lower.stl
 ```
 
 Ground-truth `.npy` files are homogeneous `float64 (4,4)` registration
 matrices. They are not segmentation masks.
 
-Build the portable manifest:
+The importer also accepts `Images`/`Labels`. Build the legacy manifest (its paths
+are absolute, so rebuild it after moving the dataset to a different machine):
 
 ```bash
 python scripts/build_manifest.py \
   --data-root /path/to/MICCAI-Chllenge-STS26-Task2 \
   --output manifests/task2.csv
 ```
+
+The journal branch adds explicit patient/source/split metadata and relative-path
+manifests. See [the journal data guide](JOURNAL_DATA_zh-CN.md) for conversion from
+this existing interface; the original CSV schema remains unchanged.
 
 ## Release audit used by the method
 

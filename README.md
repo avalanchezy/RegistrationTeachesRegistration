@@ -1,5 +1,14 @@
 # Registration Teaches Registration
 
+This research branch adds a trainable journal extension: dense/implicit unsigned
+registration fields, candidate ranking, parity-preserving refinement, and
+verified spatial self-training. **No real-data improvement is claimed yet.**
+The historical challenge runtime and its source hashes are preserved.
+See the [journal guide](docs/JOURNAL.md),
+[remote training instructions (中文)](docs/JOURNAL_TRAINING_zh-CN.md),
+[data adapter guide (中文)](docs/JOURNAL_DATA_zh-CN.md), and
+[research protocol (中文)](docs/JOURNAL_RESEARCH_PLAN_zh-CN.md).
+
 **Transform-Derived Crown Guidance for Semi-Supervised CBCT-IOS Alignment**
 
 Official **1st-place method for STSR 2026 Task 2**, developed by team

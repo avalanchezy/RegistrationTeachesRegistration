@@ -3,6 +3,15 @@
 这是 `avalanchezy` 团队在 **STSR 2026 Task 2 获得第一名**的 CBCT-IOS
 半监督配准方法源码。
 
+本分支新增面向 KBS 扩刊的**可训练研究实现**：连续 unsigned registration
+field、困难候选排序、保持 parity 的局部优化、配准验证的空间伪监督，以及
+患者隔离的训练/评估流程。尚未进行真实数据训练，下面原挑战赛成绩不代表新方法成绩。
+
+- [另一台电脑的训练步骤](docs/JOURNAL_TRAINING_zh-CN.md)
+- [现有接口、统一预处理与患者划分](docs/JOURNAL_DATA_zh-CN.md)
+- [方法判断、KBS 扩刊方案与实验协议](docs/JOURNAL_RESEARCH_PLAN_zh-CN.md)
+- [English research branch guide](docs/JOURNAL.md)
+
 ## 方法概要
 
 Task 2 没有牙齿分割标签。我们把已标注病例的刚体变换用于对齐 IOS，

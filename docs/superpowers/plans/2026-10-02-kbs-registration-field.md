@@ -39,9 +39,9 @@ points_world[B,N,3], affine[B,4,4], jaw[B]) -> distances[B,N]` (jaw 0/1).
 Functions for physical ROI distance, robust energy, weighted Huber, pair rank
 loss, centered SE(3), pose displacement, and differentiable refinement.
 
-- [ ] Write failing tests for affine values/gradients, ranking, parity, refinement.
-- [ ] Implement dense/implicit heads, interpolation, losses and refinement.
-- [ ] Verify first/second derivatives and unchanged old checkpoint compatibility.
+- [x] Write failing tests for affine values/gradients, ranking, parity, refinement.
+- [x] Implement dense/implicit heads, interpolation, losses and refinement.
+- [x] Verify first/second derivatives and unchanged old checkpoint compatibility.
 
 ### Task 2: Data adapters and strict research protocol
 
@@ -51,9 +51,9 @@ Interfaces: `load_journal_manifest(path, data_root=None)` returns validated reco
 `validate_protocol(records)`; `load_case(record)` returns checked NPZ arrays;
 `sample_queries(case, count, rng, truncation_mm=8)` returns points/targets/weights.
 
-- [ ] Write failing tests for group isolation, relocation, sampling and old import.
-- [ ] Implement adapter from existing CSV + prepared NPZ + metadata/candidates.
-- [ ] Test manual/pseudo/reference roles, OOF provenance, and deterministic queries.
+- [x] Write failing tests for group isolation, relocation, sampling and old import.
+- [x] Implement adapter from existing CSV + prepared NPZ + metadata/candidates.
+- [x] Test manual/pseudo/reference roles, OOF provenance, and deterministic queries.
 
 ### Task 3: Verified pseudo supervision and evaluation
 
@@ -63,9 +63,9 @@ Interfaces: pure NumPy medoid/uncertainty/verification gates and diagnostics.
 Gate inputs include transforms, points, energies, heldout distances, sector IDs,
 outside masks and distinct basin candidates. Outputs reasons and point weights.
 
-- [ ] Write failing tests for consensus, holdout/sector rejection and ambiguity.
-- [ ] Implement auditable fail-closed gates and grouped evaluation/reporting.
-- [ ] Verify bootstrap patient unit and missing/nonfinite data rejection.
+- [x] Write failing tests for consensus, holdout/sector rejection and ambiguity.
+- [x] Implement auditable fail-closed gates and grouped evaluation/reporting.
+- [x] Verify bootstrap patient unit and missing/nonfinite data rejection.
 
 ### Task 4: Train, infer, pseudo export, reproducibility and documentation
 
@@ -73,11 +73,11 @@ Files: `task2reg/journal/engine.py`, training/inference/pseudo/smoke scripts,
 `configs/journal/`, `docs/JOURNAL_*.md`, README links.
 Consumes Tasks 1–3 through their explicit interfaces.
 
-- [ ] Add failing integration tests for synthetic training/checkpoint resume.
-- [ ] Implement config-driven stages, complete checkpoints, inference and export.
-- [ ] Provide synthetic smoke, six-group configs and portable environment setup.
-- [ ] Document current-interface conversion and full remote training sequence.
-- [ ] Run focused and full tests, release audit, independent branch review.
+- [x] Add failing integration tests for synthetic training/checkpoint resume.
+- [x] Implement config-driven stages, complete checkpoints, inference and export.
+- [x] Provide synthetic smoke, six-group configs and portable environment setup.
+- [x] Document current-interface conversion and full remote training sequence.
+- [x] Run focused and full tests, release audit, independent branch review.
 - [ ] Commit and push `research/kbs-registration-field`; verify remote SHA.
 
 ## Execution decisions
