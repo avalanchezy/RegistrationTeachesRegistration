@@ -100,6 +100,7 @@ The release deliberately separates reproducible source and configuration from
 restricted challenge data and data-derived template geometry.
 
 ## Docker
+Our docker is available on [avalanchezy/RegistrationTeachesRegistration](https://huggingface.co/avalanchezy/RegistrationTeachesRegistration); please check it!
 
 With `model_assets/` populated:
 
