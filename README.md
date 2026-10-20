@@ -153,5 +153,15 @@ data or organizer materials.
 
 ## Citation
 
-The final challenge-paper citation will be added after publication. For now,
-use the metadata in `CITATION.cff` and cite the repository URL and release tag.
+```bibtex
+@InProceedings{ZhuYi_Registration_MICCAISAT2026,
+        author = { Zhu, Yi AND Kechichian, Razmig AND Richert, Raphaël AND Valette, Sebastien},
+        title = { { Registration Teaches Registration: Transform-Derived Crown Guidance for Semi-Supervised CBCT–IOS Alignment } },
+        booktitle = {Medical Image Computing and Computer Assisted Intervention -- MICCAI 2026 Workshops and Challenges},
+        year = {2026},
+        publisher = {Springer Nature Switzerland},
+        volume = {LNCS 17270},
+        month = {pending},
+        page = {pending}
+}
+```
